@@ -1,6 +1,6 @@
 /* Lines service worker: keeps the app shell and fonts available offline.
    The library's content is never fetched or cached here; it lives in IndexedDB on the device. */
-const SHELL_CACHE = 'lines-shell-v20';
+const SHELL_CACHE = 'lines-shell-v21';
 const FONT_CACHE = 'lines-fonts';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'js/app.js', 'js/zip.js', 'manifest.webmanifest',
@@ -20,6 +20,9 @@ self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
       .then((keys) => Promise.all(keys.filter((k) => k !== SHELL_CACHE && k !== FONT_CACHE).map((k) => caches.delete(k))))
+      // Drop the segmentation model kept for a photo style that was removed.
+      .then(() => caches.open(FONT_CACHE))
+      .then((c) => c.keys().then((reqs) => Promise.all(reqs.filter((r) => /mediapipe/.test(r.url)).map((r) => c.delete(r)))))
       .then(() => self.clients.claim())
   );
 });
@@ -51,11 +54,8 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // Fonts, and the Spot model with its runtime, are fixed versions: keep the first copy so they also work offline.
-  const pinned = url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com' ||
-    (url.hostname === 'cdn.jsdelivr.net' && url.pathname.startsWith('/npm/@mediapipe/')) ||
-    (url.hostname === 'storage.googleapis.com' && url.pathname.startsWith('/mediapipe-models/'));
-  if (pinned) {
+  // Fonts are fixed versions: keep the first copy so they also work offline.
+  if (url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com') {
     e.respondWith((async () => {
       const cache = await caches.open(FONT_CACHE);
       const hit = await cache.match(req);

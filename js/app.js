@@ -11,7 +11,7 @@
     Evan:   { full: 'Evan J. Mercer',   color: '#5E6B33', object: 'Save files',     objectZh: '存档',     alias: ['evan', '埃文'] },
     Hudson: { full: 'Hudson M. Foster', color: '#7B2236', object: 'Diary',          objectZh: '日记',     alias: ['hudson', '哈德森'] },
   };
-  const APP_VERSION = '2026-11-04 · 20';
+  const APP_VERSION = '2026-11-04 · 21';
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
   const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
   // The two home-page accents: the round dot on Main line and the solid Studies block.
@@ -156,7 +156,7 @@
   // ---------- IndexedDB ----------
 
   const dbp = new Promise((resolve, reject) => {
-    // Version 2 adds 'masks': the person outlines Spot uses. They are worked out on this device and never exported.
+    // Version 2 added a 'masks' store for a photo style that has since been removed; it stays empty.
     const r = indexedDB.open('lines', 2);
     r.onupgradeneeded = () => {
       const db = r.result;
@@ -1263,16 +1263,17 @@
     const pool = LIB.images.filter((i) => !i.cover && (!f || i.chars.includes(f)));
     const kinds = `<div class="filters">${[['', 'All'], ...KINDS].map(([kk, label]) => `<a href="${href(kk, f)}" class="${k === kk ? 'on' : ''}">${label}</a>`).join('')}</div>`;
     const people = `<div class="filters sm">${['', ...ORDER].map((c) => `<a href="${href(k, c)}" class="${f === c ? 'on' : ''}">${c ? dashes([c], 'dashes sm') + c : 'Everyone'}</a>`).join('')}</div>`;
-    const actions = `<div class="gal-actions"><button class="btn sm" data-act="add-images">Add images</button><span class="tone-modes" role="group" aria-label="Photo style">${TONES.map(([m, label]) => `<button class="chip${toneMode() === m ? ' on' : ''}" data-act="tone-mode" data-mode="${m}" aria-pressed="${toneMode() === m}">${label}</button>`).join('')}</span></div>`;
+    const actions = `<div class="gal-actions"><button class="btn sm" data-act="add-images">Add images</button><button class="chip${SELECTING ? ' on' : ''}" data-act="gselect">${SELECTING ? 'Done' : 'Select'}</button><span class="tone-modes" role="group" aria-label="Photo style">${TONES.map(([m, label]) => `<button class="chip${toneMode() === m ? ' on' : ''}" data-act="tone-mode" data-mode="${m}" aria-pressed="${toneMode() === m}">${label}</button>`).join('')}</span></div>`;
     const section = ([kk, label]) => {
       const imgs = pool.filter((i) => i.kind === kk);
       if (kk === 'story') imgs.sort((a, b) => (a.ep ?? 1e9) - (b.ep ?? 1e9) || (a.part || 0) - (b.part || 0));
       if (!imgs.length) return '';
-      return `<section class="gsec">${k ? '' : sectionHead(label.toUpperCase(), imgs.length)}<div class="gallery">${imgs.map((im) => thumb(im, true)).join('')}</div></section>`;
+      return `<section class="gsec">${k ? '' : sectionHead(label.toUpperCase(), imgs.length)}<div class="gallery">${imgs.map((im) => thumb(im, true, SELECTING)).join('')}</div></section>`;
     };
     const body = (k ? KINDS.filter(([kk]) => kk === k) : KINDS).map(section).join('') ||
       emptyState('Nothing here yet. Add images here, or name them in Files as 类别｜篇号｜人物｜关联｜标题 and import the folder as a zip.');
-    return shell(pageTitle('Gallery', 'Portraits, pictures from the story, and art.') + actions + kinds + people + body);
+    const bar = SELECTING ? `<div class="selbar"><span class="selcount">${SELECTED.size} selected</span><button class="linkbtn" data-act="gsel-all">Select all shown</button><button class="chip danger" data-act="gsel-delete"${SELECTED.size ? '' : ' disabled'}>Delete</button></div>` : '';
+    return shell(pageTitle('Gallery', 'Portraits, pictures from the story, and art.') + actions + kinds + people + body) + bar;
   }
 
   function viewTimeline() {
@@ -1376,7 +1377,7 @@
     const where = folder + '/' + name;
     if (!kind) kind = /插画|速写|sketch|drawing|创作|\bart\b/i.test(where) ? 'art' : /故事|story/i.test(where) ? 'story' : 'portrait';
     if (!people.length) people = detectChars(folder);
-    if (!people.length && !title.length) people = detectChars(name);
+    if (!people.length) people = detectChars(stripExt(name));
     const caption = title.join('｜');
     return { kind, ep, part, links, people, caption: CAMERA_NAME.test(caption) ? '' : caption };
   }
@@ -1405,126 +1406,19 @@
   }
 
   // Ink: black and white laid on the paper. Print: one colour per person, softened toward the paper. Off: as taken.
-  // Spot: the people stay as taken and only the background turns to Print.
-  const TONES = [['off', 'Original'], ['spot', 'Spot'], ['ink', 'Ink'], ['print', 'Print']];
+  const TONES = [['off', 'Original'], ['ink', 'Ink'], ['print', 'Print']];
   const toneMode = () => { const v = store('lines:tone'); return TONES.some(([k]) => k === v) ? v : 'off'; };
   const toneColor = (im) => (im.chars[0] && CHARS[im.chars[0]] ? CHARS[im.chars[0]].color : '#141414');
   const toned = (im, original) => {
-    let mode = original || im.kind === 'art' ? 'off' : toneMode();
+    const mode = original || im.kind === 'art' ? 'off' : toneMode();
     const people = im.chars.filter((c) => CHARS[c]);
-    const marks = im.kind !== 'art' && people.length && mode !== 'print' && mode !== 'spot' ? `<i class="tdash" aria-hidden="true">${people.map((c) => `<b style="background:${CHARS[c].color}"></b>`).join('')}</i>` : '';
-    if (mode === 'spot') {
-      const mask = MASKS.get(im.key);
-      if (!mask) return `<span class="tone t-print" style="--tone:${toneColor(im)}" data-mask-pending="${esc(im.key)}"><img src="${im.url}" alt="" loading="lazy"></span>`;
-      return `<span class="tone t-spot" style="--tone:${toneColor(im)}"><img class="bg" src="${im.url}" alt="" loading="lazy"><i class="wash"></i><img class="fg" src="${im.url}" alt="" loading="lazy" style="-webkit-mask-image:url(${mask});mask-image:url(${mask})"></span>`;
-    }
+    const marks = im.kind !== 'art' && people.length && mode !== 'print' ? `<i class="tdash" aria-hidden="true">${people.map((c) => `<b style="background:${CHARS[c].color}"></b>`).join('')}</i>` : '';
     return `<span class="tone t-${mode}" style="--tone:${toneColor(im)}"><img src="${im.url}" alt="" loading="lazy">${marks}</span>`;
   };
 
-  // ---------- Spot: finding the people in a photo, on this device ----------
-  // A small segmentation model (MediaPipe DeepLab v3) runs in the browser. The first time, the phone downloads
-  // the model and its runtime; photos never leave the device. Each outline is worked out once and kept.
-  const MP_BASE = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
-  const SEG_MODEL = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/deeplab_v3/float32/1/deeplab_v3.tflite';
-  const PERSON = 15; // DeepLab's label for a person
-  const MASKS = new Map();
-  let SEGMENTER = null, SEG_LOADING = null, MASK_BUSY = false;
-
-  async function loadMasks() {
-    try {
-      const rows = await idb('readonly', (st) => st.getAll(), 'masks');
-      MASKS.forEach((u) => URL.revokeObjectURL(u));
-      MASKS.clear();
-      (rows || []).forEach((r) => MASKS.set(r.key, URL.createObjectURL(r.blob)));
-    } catch (e) { /* masks are a nicety */ }
-  }
-
-  function getSegmenter() {
-    if (SEGMENTER) return Promise.resolve(SEGMENTER);
-    if (!SEG_LOADING) {
-      SEG_LOADING = (async () => {
-        const v = await import(MP_BASE + '/vision_bundle.mjs');
-        const files = await v.FilesetResolver.forVisionTasks(MP_BASE + '/wasm');
-        const make = (delegate) => v.ImageSegmenter.createFromOptions(files, {
-          baseOptions: { modelAssetPath: SEG_MODEL, delegate }, runningMode: 'IMAGE', outputCategoryMask: false, outputConfidenceMasks: true,
-        });
-        try { SEGMENTER = await make('GPU'); } catch (e) { SEGMENTER = await make('CPU'); }
-        return SEGMENTER;
-      })().catch((e) => { SEG_LOADING = null; throw e; });
-    }
-    return SEG_LOADING;
-  }
-
-  async function computeMask(im) {
-    const seg = await getSegmenter();
-    const img = new Image();
-    img.src = im.url;
-    await img.decode();
-    const k = Math.min(1, 1024 / Math.max(img.naturalWidth, img.naturalHeight));
-    const w = Math.max(1, Math.round(img.naturalWidth * k)), h = Math.max(1, Math.round(img.naturalHeight * k));
-    const src = document.createElement('canvas');
-    src.width = w; src.height = h;
-    src.getContext('2d').drawImage(img, 0, 0, w, h);
-    let conf = null, mw = 0, mh = 0;
-    const take = (res) => {
-      const ms = res.confidenceMasks || [];
-      const m = ms.length > PERSON ? ms[PERSON] : ms[0];
-      if (!m) return;
-      mw = m.width; mh = m.height;
-      conf = m.getAsFloat32Array().slice();
-      if (ms.length <= PERSON) for (let i = 0; i < conf.length; i++) conf[i] = 1 - conf[i];
-    };
-    const out = seg.segment(src, take);
-    if (!conf && out) { take(out); if (out.close) out.close(); }
-    if (!conf) throw new Error('No outline came back.');
-    const cv = document.createElement('canvas');
-    cv.width = mw; cv.height = mh;
-    const cx = cv.getContext('2d');
-    const id = cx.createImageData(mw, mh);
-    for (let i = 0; i < conf.length; i++) {
-      const a = Math.max(0, Math.min(1, (conf[i] - 0.3) / 0.4));
-      id.data[i * 4 + 3] = Math.round(a * 255);
-    }
-    cx.putImageData(id, 0, 0);
-    // Soften the edge a little where the browser allows it.
-    const soft = document.createElement('canvas');
-    soft.width = mw; soft.height = mh;
-    const sx = soft.getContext('2d');
-    let use = cv;
-    if ('filter' in sx) { sx.filter = 'blur(1.2px)'; sx.drawImage(cv, 0, 0); use = soft; }
-    const blob = await new Promise((res) => use.toBlob(res, 'image/png'));
-    await idb('readwrite', (st) => st.put({ key: im.key, blob, made: Date.now() }), 'masks');
-    MASKS.set(im.key, URL.createObjectURL(blob));
-  }
-
-  async function processPendingMasks() {
-    if (MASK_BUSY || toneMode() !== 'spot') return;
-    const keys = [...new Set([...document.querySelectorAll('[data-mask-pending]')].map((el) => el.dataset.maskPending))];
-    if (!keys.length) return;
-    MASK_BUSY = true;
-    let done = 0;
-    try {
-      toast(SEGMENTER ? `Finding people… 0/${keys.length}` : 'Getting the outline model ready… (first time only)', 60000);
-      for (const key of keys) {
-        const im = LIB.images.find((i) => i.key === key);
-        if (!im || MASKS.has(key)) continue;
-        await computeMask(im);
-        done++;
-        document.querySelectorAll(`[data-mask-pending="${CSS.escape(key)}"]`).forEach((el) => {
-          const lb = el.closest('.lb-fig');
-          el.outerHTML = toned(im, lb ? LB_ORIGINAL : false);
-        });
-        toast(`Finding people… ${done}/${keys.length}`, 60000);
-      }
-      toast(done ? 'Done. Each photo is only worked out once.' : 'Done.', 2500);
-    } catch (e) {
-      toast('Spot could not start: ' + (e && e.message ? e.message : 'the model did not load') + '. It needs a connection the first time.', 6000);
-    } finally {
-      MASK_BUSY = false;
-    }
-  }
-
-  const thumb = (im, cap) => `<button class="gimg" data-act="lightbox" data-key="${esc(im.key)}" aria-label="Open ${esc(im.caption || im.name)}">${toned(im)}${cap ? `<span class="gcap">${esc([im.kind === 'story' ? imgEp(im) : '', im.caption].filter(Boolean).join(' · '))}</span>` : ''}</button>`;
+  let SELECTING = false;
+  const SELECTED = new Set();
+  const thumb = (im, cap, pick) => `<button class="gimg${pick && SELECTED.has(im.key) ? ' picked' : ''}" data-act="${pick ? 'gsel' : 'lightbox'}" data-key="${esc(im.key)}" aria-label="Open ${esc(im.caption || im.name)}">${toned(im)}${pick ? '<i class="gcheck" aria-hidden="true"></i>' : ''}${cap ? `<span class="gcap">${esc([im.kind === 'story' ? imgEp(im) : '', im.caption].filter(Boolean).join(' · '))}</span>` : ''}</button>`;
 
   let PENDING_IMAGES = [];
   let PENDING = { kind: 'portrait', people: [] };
@@ -1602,7 +1496,6 @@
         </form>
         <button class="chip danger" data-act="lb-remove" data-key="${k}">Remove</button>
       </div>`, 'lightbox');
-    setTimeout(processPendingMasks, 50);
   }
 
   // Edits rename the stored file, so the name in Files says the same thing after Export.
@@ -1618,8 +1511,6 @@
     if (name !== rec.name) {
       await deleteRecord(key);
       rec.key = name; rec.name = name;
-      const m = await idb('readonly', (st) => st.get(key), 'masks').catch(() => null);
-      if (m) { await idb('readwrite', (st) => { st.delete(key); st.put({ ...m, key: name }); }, 'masks'); MASKS.set(name, MASKS.get(key)); MASKS.delete(key); }
     }
     rec.folder = 'Gallery';
     await putRecords([rec]);
@@ -1891,7 +1782,6 @@
       default: html = viewMissing();
     }
     $app.innerHTML = html;
-    setTimeout(processPendingMasks, 50);
     if (parts[0] === 'main' && parts[1]) {
       const el = document.getElementById('arc-' + enc(parts[1]));
       if (el) { el.scrollIntoView(); return; }
@@ -1937,6 +1827,27 @@
         else { el.dataset.sure = '1'; el.textContent = 'Tap again to remove'; }
         break;
       case 'add-images': pickImages(); break;
+      case 'gselect': SELECTING = !SELECTING; SELECTED.clear(); rerenderInPlace(); break;
+      case 'gsel': {
+        const key = el.dataset.key;
+        if (SELECTED.has(key)) SELECTED.delete(key); else SELECTED.add(key);
+        el.classList.toggle('picked', SELECTED.has(key));
+        updateSelBar();
+        break;
+      }
+      case 'gsel-all':
+        document.querySelectorAll('.gallery [data-act="gsel"]').forEach((b) => { SELECTED.add(b.dataset.key); b.classList.add('picked'); });
+        updateSelBar();
+        break;
+      case 'gsel-delete':
+        if (!SELECTED.size) break;
+        if (!el.dataset.sure) { el.dataset.sure = '1'; el.textContent = `Tap again to delete ${SELECTED.size}`; break; }
+        { const n = SELECTED.size;
+          await idb('readwrite', (st) => { SELECTED.forEach((k) => st.delete(k)); });
+          SELECTED.clear(); SELECTING = false;
+          await loadLibrary(); await route();
+          toast(`Removed ${n} image${n === 1 ? '' : 's'} from this device.`); }
+        break;
       case 'add-kind': PENDING.kind = el.dataset.kind; addSheet(); break;
       case 'add-person': { const c = el.dataset.c; PENDING.people = PENDING.people.includes(c) ? PENDING.people.filter((x) => x !== c) : [...PENDING.people, c]; addSheet(); break; }
       case 'add-save': await addPendingImages(); break;
@@ -2003,6 +1914,12 @@
         break;
     }
   });
+
+  function updateSelBar() {
+    const c = document.querySelector('.selcount'), d = document.querySelector('[data-act="gsel-delete"]');
+    if (c) c.textContent = `${SELECTED.size} selected`;
+    if (d) { d.disabled = !SELECTED.size; delete d.dataset.sure; d.textContent = 'Delete'; }
+  }
 
   function rerenderInPlace() {
     const y = window.scrollY;
@@ -2099,14 +2016,16 @@
     if (files.length) await importFiles(files, replace);
   });
 
-  window.addEventListener('hashchange', () => { if (!$overlay.hidden) closeOverlay(); route(); });
+  window.addEventListener('hashchange', () => {
+    if (!location.hash.startsWith('#/gallery')) { SELECTING = false; SELECTED.clear(); } if (!$overlay.hidden) closeOverlay(); route(); });
 
   // ---------- Start ----------
 
   (async () => {
     try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch (e) { /* ignore */ }
     try { await loadLibrary(); } catch (e) { toast('Could not open storage: ' + e.message, 6000); }
-    await loadMasks();
+    // Spot was tried and taken out; clear the outlines it saved.
+    idb('readwrite', (st) => st.clear(), 'masks').catch(() => {});
     route();
     if ('serviceWorker' in navigator && location.protocol === 'https:') {
       // When a new version takes over, reload once so the new design shows straight away.
