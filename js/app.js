@@ -11,7 +11,7 @@
     Evan:   { full: 'Evan J. Mercer',   color: '#5E6B33', object: 'Save files',     objectZh: '存档',     alias: ['evan', '埃文'] },
     Hudson: { full: 'Hudson M. Foster', color: '#7B2236', object: 'Diary',          objectZh: '日记',     alias: ['hudson', '哈德森'] },
   };
-  const APP_VERSION = '2026-11-03 · 16';
+  const APP_VERSION = '2026-11-03 · 17';
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
   const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
   // The two home-page accents: the round dot on Main line and the solid Studies block.
@@ -468,11 +468,11 @@
       if (type === 'item') chars = ['Leon'];
       if (type === 'sketch') chars = ['Zoi'];
     }
-    let ep = meta['篇号'] ? epFrom(meta['篇号']) : null;
-    if (ep == null) {
-      const m = base.match(/第(\d{1,4})篇/) || base.match(/(?:^|[｜|])(\d{1,4})(?:[｜|]|$)/);
-      if (m) ep = parseInt(m[1], 10);
-    }
+    // 篇号 can carry a part, as in 160.2 for 第160篇（二）.
+    let ep = null, part = null;
+    const em = (meta['篇号'] && String(meta['篇号']).match(/(\d{1,4})(?:\s*[.．]\s*(\d{1,2}))?/)) ||
+      base.match(/第(\d{1,4})篇/) || base.match(/(?:^|[｜|])(\d{1,4})(?:[.．](\d{1,2}))?(?:[｜|]|$)/);
+    if (em) { ep = parseInt(em[1], 10); part = em[2] ? parseInt(em[2], 10) : null; }
     // Without a 标题 line, the file name gives the title once the type, 篇号 and names are taken out:
     // 1v1｜163｜Zoi×Evan｜早晨 仙本那早餐 → 早晨 仙本那早餐
     let title = meta['标题'];
@@ -480,12 +480,12 @@
       const segs = base.replace(/^<[^>]*>/, '').split(/[｜|]/).map((x) => x.trim()).filter(Boolean);
       const rest = segs.filter((x) =>
         !/^(1v1|支线|短信|日记|物品|物件|存档|留言|档案|插画|速写|概览|研究|Leon x Zoi)$/i.test(x) &&
-        !/^第?\d{1,4}篇?$/.test(x) &&
+        !/^第?\d{1,4}(?:[.．]\d{1,2})?篇?$/.test(x) &&
         !(detectChars(x).length && !x.replace(/Leon|Zoi|Evan|Hudson|里昂|[×xX&、\s]/gi, '')));
       title = rest.join('｜') || base;
     }
     return {
-      kind: 'doc', id: type + ':' + rec.name, type, title, chars, ep, date: meta['日期'] || '',
+      kind: 'doc', id: type + ':' + rec.name, type, title, chars, ep, part, epLabel: ep == null ? '' : ep + (part ? '.' + part : ''), date: meta['日期'] || '',
       image: meta['图片'] || '', text: body.trim(), path: rec.name,
     };
   }
@@ -555,7 +555,7 @@
       c.title = '第' + c.num + '篇' + (c.part ? '（' + cnLabel(c.part) + '）' : '');
     });
 
-    docs.sort((a, b) => (a.ep ?? 1e9) - (b.ep ?? 1e9) || a.title.localeCompare(b.title, 'zh'));
+    docs.sort((a, b) => (a.ep ?? 1e9) - (b.ep ?? 1e9) || (a.part || 0) - (b.part || 0) || a.title.localeCompare(b.title, 'zh'));
     images.sort((a, b) => a.name.localeCompare(b.name, 'zh'));
 
     const byId = new Map();
@@ -571,6 +571,8 @@
 
   // ---------- Queries ----------
 
+  const epName = (d) => (d.ep == null ? '' : '第' + d.ep + '篇' + (d.part ? '（' + cnLabel(d.part) + '）' : ''));
+  const chapterFor = (d) => d.ep != null && (LIB.chapters.find((c) => c.num === d.ep && (d.part ? c.part === d.part : true)) || LIB.chapters.find((c) => c.num === d.ep));
   const docsOf = (type) => LIB.docs.filter((d) => (Array.isArray(type) ? type.includes(d.type) : d.type === type));
   const imageByName = (n) => n && LIB.images.find((i) => i.name === n || stripExt(i.name) === stripExt(n));
 
@@ -829,7 +831,7 @@
   function rowHTML(item, opts = {}) {
     const isCh = item.kind === 'chapter';
     const href = isCh ? '#/ch/' + enc(item.id) : '#/doc/' + enc(item.id);
-    const num = isCh ? pad(item.num, 3) + (item.part ? '.' + item.part : '') : item.ep != null ? pad(item.ep, 3) : '—';
+    const num = isCh ? pad(item.num, 3) + (item.part ? '.' + item.part : '') : item.ep != null ? pad(item.ep, 3) + (item.part ? '.' + item.part : '') : '—';
     const title = isCh ? (opts.chapterTitle ? item.title : excerpt(item.text, 32) || item.title) : item.title;
     // Chapter tags read as one quiet line; 重点 becomes a gold mark instead of a tag.
     const meta = isCh
@@ -1164,14 +1166,14 @@
     else if (d.type === 'diary') body = `<div class="diary">${formatBody(d.text, { speakers: false })}</div>`;
     else body = formatBody(sn.body, { generic: ['dialogue', 'side', 'save', 'note'].includes(d.type) });
     body = notesFold(sn.head, sn.tail) + body;
-    const ch = d.ep != null && LIB.chapters.find((c) => c.num === d.ep);
+    const ch = chapterFor(d);
     return `${topbar()}<main class="wrap reader">
       ${readerActions(back, backLabel)}
       ${d.chars.length ? `<div class="progress">${d.chars.slice(0, 2).map((c) => `<span style="width:${Math.round(((i + 1) / siblings.length) * 100)}%;background:${charColor(c)}"></span>`).join('')}</div>` : ''}
       <div class="rhead">
-        ${d.ep != null ? `<span class="bignum">(${d.ep})</span>` : `<span class="kicker">${TYPE_LABEL[d.type]}</span>`}
+        ${d.ep != null ? `<span class="bignum">(${d.epLabel})</span>` : `<span class="kicker">${TYPE_LABEL[d.type]}</span>`}
         <h1>${esc(d.title)}</h1>
-        <div class="rmeta">${dashes(d.chars, 'dashes sm')}${esc([pairLabel(d.chars), d.ep != null ? TYPE_LABEL[d.type] : '', d.date].filter(Boolean).join(' · '))}${ch ? ` · <a href="#/ch/${enc(ch.id)}">Read 第${ch.num}篇 ↗</a>` : ''}</div>
+        <div class="rmeta">${dashes(d.chars, 'dashes sm')}${esc([pairLabel(d.chars), d.ep != null ? TYPE_LABEL[d.type] : '', d.date].filter(Boolean).join(' · '))}${ch ? ` · <a href="#/ch/${enc(ch.id)}">Read ${esc(ch.title)} ↗</a>` : ''}</div>
       </div>
       ${img ? `<figure class="doc-img"><img src="${img.url}" alt=""></figure>` : ''}
       <article class="body">${body}</article>
@@ -1196,7 +1198,7 @@
       const items = docsOf('item').filter((d) => d.chars.includes('Leon'));
       const cards = items.map((d) => {
         const img = imageByName(d.image);
-        return `<a class="item" href="#/doc/${enc(d.id)}"><span class="item-img">${img ? `<img src="${img.url}" alt="">` : ringSVG(40, 'currentColor', 5)}</span><span class="item-name">${esc(d.title)}</span>${d.ep != null ? `<span class="item-ep">第${d.ep}篇</span>` : ''}</a>`;
+        return `<a class="item" href="#/doc/${enc(d.id)}"><span class="item-img">${img ? `<img src="${img.url}" alt="">` : ringSVG(40, 'currentColor', 5)}</span><span class="item-name">${esc(d.title)}</span>${d.ep != null ? `<span class="item-ep">${epName(d)}</span>` : ''}</a>`;
       }).join('');
       return `<section class="block">${sectionHead('PERSONAL ITEMS', items.length)}<p class="note-line">The things he kept.</p>
         ${items.length ? `<div class="items">${cards}</div>` : `<div class="items">${[0, 1, 2].map(() => `<span class="item ph-item"><span class="item-img">${lineArt(ART[3])}</span><span class="item-name">[an object he keeps]</span></span>`).join('')}</div>`}</section>`;
@@ -1211,7 +1213,7 @@
     }
     if (c === 'Evan') {
       const saves = docsOf('save').filter((d) => d.chars.includes('Evan'));
-      const slots = saves.map((d, k) => `<a class="slot" href="#/doc/${enc(d.id)}"><span class="slot-top"><b>SAVE ${pad(k + 1)}</b><span>${d.ep != null ? '第' + d.ep + '篇' : ''}</span></span><span class="slot-title">${esc(d.title)}</span><span class="slot-ex">${esc(excerpt(d.text, 60))}</span></a>`).join('');
+      const slots = saves.map((d, k) => `<a class="slot" href="#/doc/${enc(d.id)}"><span class="slot-top"><b>SAVE ${pad(k + 1)}</b><span>${epName(d)}</span></span><span class="slot-title">${esc(d.title)}</span><span class="slot-ex">${esc(excerpt(d.text, 60))}</span></a>`).join('');
       const empties = [0, 1, 2].slice(0, Math.max(0, 3 - saves.length)).map((k) => `<span class="slot empty-slot"><span class="slot-top"><b>SAVE ${pad(saves.length + k + 1)}</b></span><span class="slot-title">— EMPTY —</span></span>`).join('');
       return `<section class="block">${sectionHead('SAVE FILES', saves.length)}
         <div class="saves"><div class="saves-head"><span>LOAD GAME</span><span>Lines · Evan J. Mercer</span></div><div class="slots">${slots}${empties}</div></div>
@@ -1219,7 +1221,7 @@
     }
     const entries = docsOf('diary').filter((d) => d.chars.includes('Hudson'));
     return `<section class="block">${sectionHead('DIARY', entries.length)}
-      ${entries.length ? `<div class="diary-list">${entries.map((d) => `<a class="dentry" href="#/doc/${enc(d.id)}"><span class="dentry-top">${d.ep != null ? '第' + d.ep + '篇' : ''}${d.date ? ' · ' + esc(d.date) : ''}</span><span class="dentry-title">${esc(d.title)}</span><span class="dentry-ex">${esc(excerpt(d.text, 90))}</span></a>`).join('')}</div>`
+      ${entries.length ? `<div class="diary-list">${entries.map((d) => `<a class="dentry" href="#/doc/${enc(d.id)}"><span class="dentry-top">${epName(d)}${d.date ? ' · ' + esc(d.date) : ''}</span><span class="dentry-title">${esc(d.title)}</span><span class="dentry-ex">${esc(excerpt(d.text, 90))}</span></a>`).join('')}</div>`
         : `<div class="diary-list"><span class="dentry ph-entry"><span class="dentry-title">[the first page of his diary]</span></span></div>`}</section>`;
   }
 
@@ -1485,8 +1487,8 @@
     const docs = threadDocs(key);
     let count = 0, last = null;
     docs.forEach((d) => parseMsgs(splitNotes(d.text).body).forEach((m) => { if (m.kind === 'msg') { count++; last = m; } }));
-    const eps = docs.map((d) => d.ep).filter((n) => n != null);
-    return { docs, count, last, first: eps.length ? Math.min(...eps) : null, latest: eps.length ? Math.max(...eps) : null };
+    const numbered = docs.filter((d) => d.ep != null);
+    return { docs, count, last, first: numbered[0] || null, latest: numbered[numbered.length - 1] || null };
   }
 
   function viewMessages() {
@@ -1497,7 +1499,7 @@
       return `<a class="trow" href="#/messages/${t.key}">
         <span class="trow-av">${threadAvatar(t)}</span>
         <span class="trow-main"><span class="trow-name">${esc(threadName(t))}</span><span class="trow-last">${s.last ? esc(prefix + s.last.text) : '<em>No messages yet</em>'}</span></span>
-        <span class="trow-meta">${s.latest != null ? '第' + s.latest + '篇' : ''}${s.count ? `<b>${s.count}</b>` : ''}</span>
+        <span class="trow-meta">${s.latest ? esc(epName(s.latest)) : ''}</span>
       </a>`;
     }).join('');
     return shell(pageTitle('Messages', 'Zoi’s phone. The texts that the main line retells.') + `<div class="threads">${rows}</div>`);
@@ -1511,7 +1513,7 @@
     const isGroup = key === 'group';
     const ids = new Map();
     const segs = s.docs.map((d, di) => {
-      const ch = d.ep != null && LIB.chapters.find((c) => c.num === d.ep);
+      const ch = chapterFor(d);
       let prev = null, n = 0;
       const sn = splitNotes(d.text);
       const items = parseMsgs(sn.body).map((m) => {
@@ -1530,7 +1532,7 @@
         const pinned = pins.some((p) => p.mid === mid);
         return `${from}<p class="bubble${me ? ' me' : ''}${pinned ? ' pinned' : ''}${/^[（(][\s\S]*[)）]$/.test(m.text) ? ' aside' : ''}" id="${id}" data-act="bubble" data-mid="${esc(mid)}">${esc(m.text)}</p>`;
       }).join('');
-      return `<div class="seg"><span>${[d.ep != null ? '第' + d.ep + '篇' : '', d.date, d.title !== stripExt(d.path) ? d.title : ''].filter(Boolean).map(esc).join(' · ')}</span>${ch ? `<a href="#/ch/${enc(ch.id)}">Main line ↗</a>` : ''}</div>${notesFold(sn.head, sn.tail)}${items}`;
+      return `<div class="seg"><span>${[epName(d), d.date, d.title !== stripExt(d.path) ? d.title : ''].filter(Boolean).map(esc).join(' · ')}</span>${ch ? `<a href="#/ch/${enc(ch.id)}">Main line ↗</a>` : ''}</div>${notesFold(sn.head, sn.tail)}${items}`;
     }).join('');
     const pinHTML = pins.length ? `<div class="pins">${pins.map((p) => {
       const id = ids.get(p.mid);
@@ -1540,7 +1542,7 @@
     const sub = isGroup
       ? ORDER.map((x) => groupNick(x) || x).map(esc).join(', ')
       : esc(CHARS[t.with].full) + (c.theirs ? ` · saves Zoi as “${esc(c.theirs)}”` : '');
-    const stats = s.count ? `${s.first != null ? 'Since 第' + s.first + '篇 · ' : ''}${s.count} message${s.count === 1 ? '' : 's'}` : 'No messages yet';
+    const stats = s.count ? `${s.first ? 'Since ' + epName(s.first) + ' · ' : ''}${s.count} message${s.count === 1 ? '' : 's'}` : 'No messages yet';
     return `${topbar()}<main class="wrap chat-page">
       <div class="rbar"><a href="#/messages">← Messages</a><button class="linkbtn" data-act="edit-contact" data-thread="${key}">Edit</button></div>
       <div class="chat-head">
