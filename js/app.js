@@ -11,7 +11,7 @@
     Evan:   { full: 'Evan J. Mercer',   color: '#5E6B33', object: 'Save files',     objectZh: '存档',     alias: ['evan', '埃文'] },
     Hudson: { full: 'Hudson M. Foster', color: '#7B2236', object: 'Diary',          objectZh: '日记',     alias: ['hudson', '哈德森'] },
   };
-  const APP_VERSION = '2026-11-04 · 18';
+  const APP_VERSION = '2026-11-04 · 19';
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
   const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
   // The two home-page accents: the round dot on Main line and the solid Studies block.
@@ -498,12 +498,12 @@
     for (const r of records) {
       if (r.kind === 'settings') { readSettings(r.text); continue; }
       if (r.kind === 'image') {
-        const where = (r.folder + '/' + r.name);
+        const info = parseImageName(r.folder, r.name);
         images.push({
-          kind: 'image', id: 'img:' + r.name, key: r.key, name: r.name, folder: r.folder,
+          id: 'img:' + r.name, key: r.key, name: r.name, folder: r.folder,
           url: URL.createObjectURL(new Blob([r.buf], { type: r.mime })),
-          chars: detectChars(where),
-          sketch: /插画|速写|sketch|drawing/i.test(where),
+          kind: info.kind, ep: info.ep, part: info.part, links: info.links, caption: info.caption,
+          chars: info.people, sketch: info.kind === 'art',
           cover: /封面|cover/i.test(r.folder),
         });
         continue;
@@ -1133,6 +1133,7 @@
       </div>
       ${chapterNotes(ch)}
       <article class="body">${formatBody(ch.text)}</article>
+      ${storyStrip(storyImagesFor(ch.num, ch.part, 'main'))}
       ${relatedFor(ch.num, ch.id)}
       <nav class="pn">
         ${prev ? `<a href="#/ch/${enc(prev.id)}"><small>Previous</small><span>← ${prev.label}</span></a>` : '<span></span>'}
@@ -1177,6 +1178,7 @@
       </div>
       ${img ? `<figure class="doc-img"><img src="${img.url}" alt=""></figure>` : ''}
       <article class="body">${body}</article>
+      ${['dialogue', 'message', 'side'].includes(d.type) ? storyStrip(storyImagesFor(d.ep, d.part, d.type === 'message' ? 'message' : 'dialogue')) : ''}
       ${relatedFor(d.ep, d.id)}
       <nav class="pn">
         ${prev ? `<a href="#/doc/${enc(prev.id)}"><small>Previous</small><span>← ${esc(prev.title)}</span></a>` : '<span></span>'}
@@ -1196,17 +1198,19 @@
   function objectSection(c) {
     if (c === 'Leon') {
       const items = docsOf('item').filter((d) => d.chars.includes('Leon'));
-      const cards = items.map((d) => {
+      const pics = LIB.images.filter((im) => im.kind === 'story' && im.chars.includes('Leon') && !items.some((d) => imageByName(d.image) === im));
+      const picCards = pics.map((im) => `<button class="item" data-act="lightbox" data-key="${esc(im.key)}"><span class="item-img"><img src="${im.url}" alt=""></span><span class="item-name">${esc(im.caption || 'Untitled')}</span>${im.ep != null ? `<span class="item-ep">${imgEp(im)}</span>` : ''}</button>`).join('');
+      const cards = picCards + items.map((d) => {
         const img = imageByName(d.image);
         return `<a class="item" href="#/doc/${enc(d.id)}"><span class="item-img">${img ? `<img src="${img.url}" alt="">` : ringSVG(40, 'currentColor', 5)}</span><span class="item-name">${esc(d.title)}</span>${d.ep != null ? `<span class="item-ep">${epName(d)}</span>` : ''}</a>`;
       }).join('');
-      return `<section class="block">${sectionHead('PERSONAL ITEMS', items.length)}<p class="note-line">The things he kept.</p>
-        ${items.length ? `<div class="items">${cards}</div>` : `<div class="items">${[0, 1, 2].map(() => `<span class="item ph-item"><span class="item-img">${lineArt(ART[3])}</span><span class="item-name">[an object he keeps]</span></span>`).join('')}</div>`}</section>`;
+      return `<section class="block">${sectionHead('PERSONAL ITEMS', items.length + pics.length)}<p class="note-line">The things he kept.</p>
+        ${items.length + pics.length ? `<div class="items">${cards}</div>` : `<div class="items">${[0, 1, 2].map(() => `<span class="item ph-item"><span class="item-img">${lineArt(ART[3])}</span><span class="item-name">[an object he keeps]</span></span>`).join('')}</div>`}</section>`;
     }
     if (c === 'Zoi') {
-      const imgs = LIB.images.filter((i) => i.sketch && !i.cover);
+      const imgs = LIB.images.filter((i) => i.kind === 'art' && !i.cover);
       const docs = docsOf('sketch');
-      const grid = imgs.map((im) => `<button class="sk" data-act="lightbox" data-src="${im.url}" aria-label="Open ${esc(im.name)}"><img src="${im.url}" alt="" loading="lazy"></button>`).join('');
+      const grid = imgs.map((im) => `<button class="sk" data-act="lightbox" data-key="${esc(im.key)}" aria-label="Open ${esc(im.caption || im.name)}"><img src="${im.url}" alt="" loading="lazy"></button>`).join('');
       return `<section class="block">${sectionHead('SKETCHBOOK', imgs.length + docs.length)}
         ${imgs.length ? `<div class="sketches">${grid}</div>` : `<div class="sketches">${[0, 1, 2, 3].map((k) => `<span class="sk ph-sk">${lineArt(ART[k])}<span class="ph">[your line drawing]</span></span>`).join('')}</div>`}
         ${docs.length ? `<div class="rows">${docs.map((d) => rowHTML(d)).join('')}</div>` : ''}</section>`;
@@ -1249,14 +1253,21 @@
   }
 
   function viewGallery(params) {
-    const f = params.get('f');
-    const imgs = LIB.images.filter((i) => !i.cover && (!f || (f === 'sketch' ? i.sketch : i.chars.includes(f))));
-    const filters = `<div class="filters"><a href="#/gallery" class="${!f ? 'on' : ''}">All</a>${ORDER.map((c) => `<a href="#/gallery?f=${c}" class="${f === c ? 'on' : ''}">${dashes([c], 'dashes sm')}${c}</a>`).join('')}<a href="#/gallery?f=sketch" class="${f === 'sketch' ? 'on' : ''}">Sketches</a></div>`;
-    const actions = `<div class="gal-actions"><button class="btn sm" data-act="add-images">Add images</button><span class="tone-modes" role="group" aria-label="Photo style">${TONES.map(([k, label]) => `<button class="chip${toneMode() === k ? ' on' : ''}" data-act="tone-mode" data-mode="${k}" aria-pressed="${toneMode() === k}">${label}</button>`).join('')}</span></div>`;
-    const grid = imgs.length
-      ? `<div class="gallery">${imgs.map((im) => `<button class="gimg" data-act="lightbox" data-key="${esc(im.key)}" aria-label="Open ${esc(im.name)}">${toned(im)}<span class="gcap">${esc(stripExt(im.name))}</span></button>`).join('')}</div>`
-      : emptyState('No images yet. Add them here, or put them in your Lines folder and import; a folder or file name with a character’s name files it under that character.');
-    return shell(pageTitle('Gallery', 'Portraits, sketches and photographs.') + actions + filters + grid);
+    const f = params.get('f') || '', k = params.get('k') || '';
+    const href = (kk, ff) => { const q = new URLSearchParams(); if (kk) q.set('k', kk); if (ff) q.set('f', ff); const t = q.toString(); return '#/gallery' + (t ? '?' + t : ''); };
+    const pool = LIB.images.filter((i) => !i.cover && (!f || i.chars.includes(f)));
+    const kinds = `<div class="filters">${[['', 'All'], ...KINDS].map(([kk, label]) => `<a href="${href(kk, f)}" class="${k === kk ? 'on' : ''}">${label}</a>`).join('')}</div>`;
+    const people = `<div class="filters sm">${['', ...ORDER].map((c) => `<a href="${href(k, c)}" class="${f === c ? 'on' : ''}">${c ? dashes([c], 'dashes sm') + c : 'Everyone'}</a>`).join('')}</div>`;
+    const actions = `<div class="gal-actions"><button class="btn sm" data-act="add-images">Add images</button><span class="tone-modes" role="group" aria-label="Photo style">${TONES.map(([m, label]) => `<button class="chip${toneMode() === m ? ' on' : ''}" data-act="tone-mode" data-mode="${m}" aria-pressed="${toneMode() === m}">${label}</button>`).join('')}</span></div>`;
+    const section = ([kk, label]) => {
+      const imgs = pool.filter((i) => i.kind === kk);
+      if (kk === 'story') imgs.sort((a, b) => (a.ep ?? 1e9) - (b.ep ?? 1e9) || (a.part || 0) - (b.part || 0));
+      if (!imgs.length) return '';
+      return `<section class="gsec">${k ? '' : sectionHead(label.toUpperCase(), imgs.length)}<div class="gallery">${imgs.map((im) => thumb(im, true)).join('')}</div></section>`;
+    };
+    const body = (k ? KINDS.filter(([kk]) => kk === k) : KINDS).map(section).join('') ||
+      emptyState('Nothing here yet. Add images here, or name them in Files as 类别｜篇号｜人物｜关联｜标题 and import the folder as a zip.');
+    return shell(pageTitle('Gallery', 'Portraits, pictures from the story, and art.') + actions + kinds + people + body);
   }
 
   function viewTimeline() {
@@ -1321,7 +1332,7 @@
 标题：仙本那早餐
 ---
 正文……</pre>
-        <p class="note-line">For texts, 人物 is Leon × Zoi, Zoi × Evan, Zoi × Hudson or 群聊 for the group chat. 类型 can be 1v1, 支线, 短信, 日记, 物品, 存档, 留言, 档案, 插画 or 概览 / 研究. Optional lines: 日期, 图片 (an image file name). Images in a folder named 插画 or 速写 go to Zoi’s sketchbook; images in a folder named 封面 named after a section (main, dialogues, side, messages, studies, gallery) or a character (Leon, Zoi, Evan, Hudson) become covers. Files with the same name replace each other.</p>
+        <p class="note-line">For texts, 人物 is Leon × Zoi, Zoi × Evan, Zoi × Hudson or 群聊 for the group chat. 类型 can be 1v1, 支线, 短信, 日记, 物品, 存档, 留言, 档案, 插画 or 概览 / 研究. Optional lines: 日期, 图片 (an image file name). Images are named 类别｜篇号｜人物｜关联｜标题: 类别 is 人物, 故事 or 创作; 关联 (主线, 1v1 or 短信) only matters for 故事, and shows the picture under that piece. Everything but 类别 can be left out, e.g. 人物｜Zoi｜湖边.jpg or 故事｜160.2｜Evan｜短信｜童年照片.jpg. Images in a folder named 封面, named after a section (main, dialogues, side, messages, studies, gallery) or a character, become covers. Files with the same name replace each other.</p>
       </section>
 
       <section class="block">${sectionHead('FILES', recs.length)}
@@ -1329,24 +1340,79 @@
       </section>`);
   }
 
-  // ---------- Images: tone, adding, retagging ----------
+  // ---------- Images: kinds, names, styles, editing ----------
 
-  // Photos are shown as one-colour prints in their person's colour; the stored file never changes.
-  // Sketches keep their own colours.
-  // Film: soft, faded colour. Ink: black and white on paper. Print: one colour per person. Off: as taken.
-  const TONES = [['film', 'Film'], ['ink', 'Ink'], ['print', 'Print'], ['off', 'Original']];
-  const toneMode = () => { const v = store('lines:tone'); return TONES.some(([k]) => k === v) ? v : 'film'; };
+  // Every image is one of three kinds, and can show any number of people:
+  //   Portraits — what the characters look like.
+  //   In the story — pictures that exist inside the story (an old photo, a place, an object);
+  //                  these can carry a 篇号 and show under that chapter, text or dialogue.
+  //   Art — Zoi's own drawings; they keep their colours.
+  // The file name carries all of it, so a folder of images can be named in Files and imported as a zip:
+  //   类别｜篇号｜人物｜关联｜标题.jpg   e.g. 故事｜160.2｜Evan｜短信｜童年照片.jpg
+  const KINDS = [['portrait', 'Portraits', '人物'], ['story', 'In the story', '故事'], ['art', 'Art', '创作']];
+  const LINKS = [['main', '主线'], ['dialogue', '1v1'], ['message', '短信']];
+  const CAMERA_NAME = /^(IMG|DSC|PXL|DCIM|image|photo|Screenshot|截屏|屏幕快照|微信图片)[\s_\-]*[\d_\-\s]*$/i;
+
+  function parseImageName(folder, name) {
+    const segs = stripExt(name).split(/[｜|]/).map((x) => x.trim()).filter(Boolean);
+    let kind = null, ep = null, part = null, links = [], people = [];
+    const title = [];
+    for (const sg of segs) {
+      let m;
+      if (/^(人物|人像|portraits?)$/i.test(sg)) kind = 'portrait';
+      else if (/^(故事|剧情|story|in the story)$/i.test(sg)) kind = 'story';
+      else if (/^(创作|插画|速写|绘画|art|sketch(es)?|drawings?)$/i.test(sg)) kind = 'art';
+      else if ((m = sg.match(/^第?(\d{1,4})(?:[.．](\d{1,2}))?篇?$/))) { ep = +m[1]; part = m[2] ? +m[2] : null; }
+      else if (/^(主线|1v1|短信)([、,，+＋\s]+(主线|1v1|短信))*$/i.test(sg)) {
+        links = sg.split(/[、,，+＋\s]+/).map((x) => (x === '主线' ? 'main' : /1v1/i.test(x) ? 'dialogue' : 'message'));
+      } else if (detectChars(sg).length && !sg.replace(/Leon|Zoi|Evan|Hudson|里昂|雪儿|[×xX&+＋、,，\s]/gi, '')) people = parseChars(sg).filter((c) => CHARS[c]);
+      else title.push(sg);
+    }
+    const where = folder + '/' + name;
+    if (!kind) kind = /插画|速写|sketch|drawing|创作|\bart\b/i.test(where) ? 'art' : /故事|story/i.test(where) ? 'story' : 'portrait';
+    if (!people.length) people = detectChars(folder);
+    if (!people.length && !title.length) people = detectChars(name);
+    const caption = title.join('｜');
+    return { kind, ep, part, links, people, caption: CAMERA_NAME.test(caption) ? '' : caption };
+  }
+
+  function imageName(o, ext) {
+    const kind = (KINDS.find(([k]) => k === o.kind) || KINDS[0])[2];
+    const segs = [kind];
+    if (o.ep != null) segs.push(o.ep + (o.part ? '.' + o.part : ''));
+    if (o.people.length) segs.push(sortChars(o.people).join('×'));
+    if (o.ep != null && o.links.length) segs.push(o.links.map((l) => LINKS.find(([k]) => k === l)[1]).join('、'));
+    if (o.caption) segs.push(o.caption.replace(/[\\/:*?"<>|｜]/g, ' ').trim());
+    return segs.join('｜') + ext;
+  }
+
+  const imgEp = (im) => (im.ep == null ? '' : '第' + im.ep + '篇' + (im.part ? '（' + cnLabel(im.part) + '）' : ''));
+
+  // Story images that belong under a chapter, a text or a dialogue with the same 篇号.
+  function storyImagesFor(num, part, linkType) {
+    if (num == null) return [];
+    return LIB.images.filter((im) => im.kind === 'story' && im.ep === num &&
+      (!im.part || !part || im.part === part) && (!im.links.length || im.links.includes(linkType)));
+  }
+  function storyStrip(imgs, label = 'IN THE STORY') {
+    if (!imgs.length) return '';
+    return `<section class="related">${sectionHead(label, imgs.length)}<div class="strip">${imgs.map((im) => thumb(im)).join('')}</div></section>`;
+  }
+
+  // Ink: black and white laid on the paper. Print: one colour per person, softened toward the paper. Off: as taken.
+  const TONES = [['off', 'Original'], ['ink', 'Ink'], ['print', 'Print']];
+  const toneMode = () => { const v = store('lines:tone'); return TONES.some(([k]) => k === v) ? v : 'off'; };
   const toneColor = (im) => (im.chars[0] && CHARS[im.chars[0]] ? CHARS[im.chars[0]].color : '#141414');
   const toned = (im, original) => {
-    const mode = original || im.sketch ? 'off' : toneMode();
+    const mode = original || im.kind === 'art' ? 'off' : toneMode();
     const people = im.chars.filter((c) => CHARS[c]);
-    const marks = !im.sketch && people.length && mode !== 'print' ? `<i class="tdash" aria-hidden="true">${people.map((c) => `<b style="background:${CHARS[c].color}"></b>`).join('')}</i>` : '';
+    const marks = im.kind !== 'art' && people.length && mode !== 'print' ? `<i class="tdash" aria-hidden="true">${people.map((c) => `<b style="background:${CHARS[c].color}"></b>`).join('')}</i>` : '';
     return `<span class="tone t-${mode}" style="--tone:${toneColor(im)}"><img src="${im.url}" alt="" loading="lazy">${marks}</span>`;
   };
-  const WHO = [['none', 'No one'], ['Leon', 'Leon'], ['Zoi', 'Zoi'], ['Evan', 'Evan'], ['Hudson', 'Hudson'], ['sketch', 'Sketch']];
-  const folderFor = (who) => (who === 'none' ? 'Gallery' : who === 'sketch' ? 'Gallery/插画' : 'Gallery/' + who);
-  const whoOf = (im) => (im.sketch ? 'sketch' : im.chars[0] || 'none');
+  const thumb = (im, cap) => `<button class="gimg" data-act="lightbox" data-key="${esc(im.key)}" aria-label="Open ${esc(im.caption || im.name)}">${toned(im)}${cap ? `<span class="gcap">${esc([im.kind === 'story' ? imgEp(im) : '', im.caption].filter(Boolean).join(' · '))}</span>` : ''}</button>`;
+
   let PENDING_IMAGES = [];
+  let PENDING = { kind: 'portrait', people: [] };
   let LB_ORIGINAL = false;
 
   function pickImages() {
@@ -1357,25 +1423,40 @@
       PENDING_IMAGES = [...inp.files];
       inp.remove();
       if (!PENDING_IMAGES.length) return;
-      const n = PENDING_IMAGES.length;
-      openOverlay(`<div class="sheet"><p class="sheet-k">${n} image${n === 1 ? '' : 's'}</p><h2>Who is in ${n === 1 ? 'it' : 'them'}?</h2>
-        <div class="chips">${WHO.map(([k, label]) => `<button class="chip" data-act="add-who" data-who="${k}">${CHARS[k] ? dashes([k], 'dashes sm') : ''}${label}</button>`).join('')}</div>
-        <p class="note-line">Sketch puts them in Zoi’s sketchbook and keeps their colours. You can change this later by opening the image.</p>
-        <button class="linkbtn" data-act="close">Cancel</button></div>`, 'sheet-ov');
+      PENDING = { kind: 'portrait', people: [] };
+      addSheet();
     });
     inp.click();
   }
 
-  async function addPendingImages(who) {
+  function addSheet() {
+    const n = PENDING_IMAGES.length;
+    openOverlay(`<div class="sheet"><p class="sheet-k">${n} image${n === 1 ? '' : 's'}</p>
+      <h2>What ${n === 1 ? 'is it' : 'are they'}?</h2>
+      <div class="chips">${KINDS.map(([k, label]) => `<button class="chip${PENDING.kind === k ? ' on' : ''}" data-act="add-kind" data-kind="${k}">${label}</button>`).join('')}</div>
+      <p class="sheet-k">Who is in ${n === 1 ? 'it' : 'them'}</p>
+      <div class="chips">${ORDER.map((c) => `<button class="chip${PENDING.people.includes(c) ? ' on' : ''}" data-act="add-person" data-c="${c}">${dashes([c], 'dashes sm')}${c}</button>`).join('')}</div>
+      <p class="note-line">Pick as many people as you like, or none. Open an image later to add a 篇号, a caption or change any of this.</p>
+      <span class="sheet-btns"><button class="btn sm" data-act="add-save">Add</button><button class="linkbtn" data-act="close">Cancel</button></span></div>`, 'sheet-ov');
+  }
+
+  function uniqueName(name, taken) {
+    const stem = stripExt(name), ext = name.slice(stem.length);
+    for (let k = 2; taken.has(name); k++) name = `${stem} ${k}${ext}`;
+    taken.add(name);
+    return name;
+  }
+
+  async function addPendingImages() {
     const taken = new Set(LIB.records.map((r) => r.key));
     const recs = [];
     for (const f of PENDING_IMAGES) {
-      let name = f.name || 'image.jpg';
-      if (!IMG_TYPES[(name.split('.').pop() || '').toLowerCase()]) name = stripExt(name) + '.jpg';
-      const stem = stripExt(name), ext = name.slice(stem.length);
-      for (let k = 2; taken.has(name); k++) name = `${stem}-${k}${ext}`;
-      taken.add(name);
-      const r = makeRecord(folderFor(who) + '/' + name, new Uint8Array(await f.arrayBuffer()));
+      const orig = f.name || 'image.jpg';
+      let ext = (orig.match(/\.[^.]+$/) || ['.jpg'])[0].toLowerCase();
+      if (!IMG_TYPES[ext.slice(1)]) ext = '.jpg';
+      const caption = CAMERA_NAME.test(stripExt(orig)) ? '' : stripExt(orig);
+      const name = uniqueName(imageName({ kind: PENDING.kind, ep: null, part: null, people: PENDING.people, links: [], caption }, ext), taken);
+      const r = makeRecord('Gallery/' + name, new Uint8Array(await f.arrayBuffer()));
       if (r) { if (f.type && f.type.startsWith('image/')) r.mime = f.type; recs.push(r); }
     }
     PENDING_IMAGES = [];
@@ -1390,31 +1471,50 @@
   function openLightbox(key) {
     const im = LIB.images.find((i) => i.key === key);
     if (!im) return;
-    const cur = whoOf(im);
+    const k = esc(key);
     openOverlay(`<button class="lb-close menubtn" data-act="close">CLOSE ×</button>
       <figure class="lb-fig">${toned(im, LB_ORIGINAL)}</figure>
+      ${im.caption || im.ep != null ? `<p class="lb-cap">${esc([im.kind === 'story' ? imgEp(im) : '', im.caption].filter(Boolean).join(' · '))}</p>` : ''}
       <div class="lb-bar">
-        ${im.sketch || toneMode() === 'off' ? '' : `<button class="chip" data-act="lb-tone" data-key="${esc(key)}">${LB_ORIGINAL ? 'Show styled' : 'Show original'}</button>`}
-        <div class="chips">${WHO.map(([k, label]) => `<button class="chip${cur === k ? ' on' : ''}" data-act="lb-who" data-who="${k}" data-key="${esc(key)}">${label}</button>`).join('')}</div>
-        <button class="chip danger" data-act="lb-remove" data-key="${esc(key)}">Remove</button>
+        ${im.kind === 'art' || toneMode() === 'off' ? '' : `<button class="chip" data-act="lb-tone" data-key="${k}">${LB_ORIGINAL ? 'Show styled' : 'Show original'}</button>`}
+        <div class="chips">${KINDS.map(([kk, label]) => `<button class="chip${im.kind === kk ? ' on' : ''}" data-act="lb-set" data-field="kind" data-v="${kk}" data-key="${k}">${label}</button>`).join('')}</div>
+        <div class="chips">${ORDER.map((c) => `<button class="chip${im.chars.includes(c) ? ' on' : ''}" data-act="lb-set" data-field="person" data-v="${c}" data-key="${k}">${c}</button>`).join('')}</div>
+        <form class="lb-form" data-act="lb-save" data-key="${k}">
+          <label><span>篇号</span><input name="ep" type="text" inputmode="decimal" value="${im.ep != null ? im.ep + (im.part ? '.' + im.part : '') : ''}" placeholder="160.2"></label>
+          <label class="wide"><span>Caption</span><input name="caption" type="text" value="${esc(im.caption)}" placeholder="童年照片"></label>
+          ${im.kind === 'story' ? `<div class="chips links"><span>Show under</span>${LINKS.map(([lk, label]) => `<button type="button" class="chip${im.links.includes(lk) ? ' on' : ''}" data-act="lb-set" data-field="link" data-v="${lk}" data-key="${k}">${label}</button>`).join('')}</div>` : ''}
+          <button class="chip" type="submit">Save</button>
+        </form>
+        <button class="chip danger" data-act="lb-remove" data-key="${k}">Remove</button>
       </div>`, 'lightbox');
   }
 
-  async function retagImage(key, who) {
+  // Edits rename the stored file, so the name in Files says the same thing after Export.
+  async function updateImage(key, change) {
+    const im = LIB.images.find((i) => i.key === key);
     const rec = await idb('readonly', (s) => s.get(key));
-    if (!rec) return;
-    rec.folder = folderFor(who);
+    if (!im || !rec) return;
+    const o = { kind: im.kind, ep: im.ep, part: im.part, people: [...im.chars], links: [...im.links], caption: im.caption };
+    change(o);
+    const ext = (rec.name.match(/\.[^.]+$/) || ['.jpg'])[0];
+    const taken = new Set(LIB.records.map((r) => r.key).filter((x) => x !== key));
+    const name = uniqueName(imageName(o, ext), taken);
+    if (name !== rec.name) {
+      await deleteRecord(key);
+      rec.key = name; rec.name = name;
+    }
+    rec.folder = 'Gallery';
     await putRecords([rec]);
     await loadLibrary();
     await route();
-    openLightbox(key);
+    openLightbox(name);
   }
 
   function photoStrip(c) {
-    const imgs = LIB.images.filter((i) => !i.cover && !i.sketch && i.chars.includes(c));
+    const imgs = LIB.images.filter((i) => !i.cover && i.kind === 'portrait' && i.chars.includes(c));
     if (!imgs.length) return '';
     return `<section class="block">${sectionHead('PHOTOS', imgs.length, `<a href="#/gallery?f=${c}">Gallery ↗</a> `)}
-      <div class="strip">${imgs.slice(0, 12).map((im) => `<button class="gimg" data-act="lightbox" data-key="${esc(im.key)}" aria-label="Open ${esc(im.name)}">${toned(im)}</button>`).join('')}</div></section>`;
+      <div class="strip">${imgs.slice(0, 12).map((im) => thumb(im)).join('')}</div></section>`;
   }
 
   // ---------- Messages: Zoi's phone ----------
@@ -1539,7 +1639,7 @@
         const pinned = pins.some((p) => p.mid === mid);
         return `${from}<p class="bubble${me ? ' me' : ''}${pinned ? ' pinned' : ''}${/^[（(][\s\S]*[)）]$/.test(m.text) ? ' aside' : ''}" id="${id}" data-act="bubble" data-mid="${esc(mid)}">${esc(m.text)}</p>`;
       }).join('');
-      return `<div class="seg"><span>${[epName(d), d.date, d.title !== stripExt(d.path) ? d.title : ''].filter(Boolean).map(esc).join(' · ')}</span>${ch ? `<a href="#/ch/${enc(ch.id)}">Main line ↗</a>` : ''}</div>${notesFold(sn.head, sn.tail)}${items}`;
+      return `<div class="seg"><span>${[epName(d), d.date, d.title !== stripExt(d.path) ? d.title : ''].filter(Boolean).map(esc).join(' · ')}</span>${ch ? `<a href="#/ch/${enc(ch.id)}">Main line ↗</a>` : ''}</div>${notesFold(sn.head, sn.tail)}${(() => { const pics = storyImagesFor(d.ep, d.part, 'message'); return pics.length ? `<div class="strip chat-pics">${pics.map((im) => thumb(im)).join('')}</div>` : ''; })()}${items}`;
     }).join('');
     const pinHTML = pins.length ? `<div class="pins">${pins.map((p) => {
       const id = ids.get(p.mid);
@@ -1704,13 +1804,23 @@
       }
       case 'lightbox': LB_ORIGINAL = false; openLightbox(el.dataset.key); break;
       case 'lb-tone': LB_ORIGINAL = !LB_ORIGINAL; openLightbox(el.dataset.key); break;
-      case 'lb-who': await retagImage(el.dataset.key, el.dataset.who); break;
+      case 'lb-set': {
+        const { field, v } = el.dataset;
+        await updateImage(el.dataset.key, (o) => {
+          if (field === 'kind') o.kind = v;
+          if (field === 'person') o.people = o.people.includes(v) ? o.people.filter((x) => x !== v) : [...o.people, v];
+          if (field === 'link') o.links = o.links.includes(v) ? o.links.filter((x) => x !== v) : [...o.links, v];
+        });
+        break;
+      }
       case 'lb-remove':
         if (el.dataset.sure) { await deleteRecord(el.dataset.key); closeOverlay(); await loadLibrary(); await route(); toast('Removed from this device.'); }
         else { el.dataset.sure = '1'; el.textContent = 'Tap again to remove'; }
         break;
       case 'add-images': pickImages(); break;
-      case 'add-who': await addPendingImages(el.dataset.who); break;
+      case 'add-kind': PENDING.kind = el.dataset.kind; addSheet(); break;
+      case 'add-person': { const c = el.dataset.c; PENDING.people = PENDING.people.includes(c) ? PENDING.people.filter((x) => x !== c) : [...PENDING.people, c]; addSheet(); break; }
+      case 'add-save': await addPendingImages(); break;
       case 'tone-mode': store('lines:tone', el.dataset.mode); rerenderInPlace(); break;
       case 'bubble': {
         const open = document.querySelector('.bubble-act');
@@ -1820,6 +1930,16 @@
   });
 
   document.addEventListener('submit', async (e) => {
+    const lbForm = e.target.closest('[data-act="lb-save"]');
+    if (lbForm) {
+      e.preventDefault();
+      const epRaw = lbForm.querySelector('[name="ep"]').value.trim();
+      const m = epRaw.match(/(\d{1,4})(?:\s*[.．]\s*(\d{1,2}))?/);
+      const cap = lbForm.querySelector('[name="caption"]').value.trim();
+      await updateImage(lbForm.dataset.key, (o) => { o.ep = m ? +m[1] : null; o.part = m && m[2] ? +m[2] : null; o.caption = cap; });
+      toast('Saved. Export when you want this in your Files too.', 3000);
+      return;
+    }
     const contact = e.target.closest('[data-act="save-contact"]');
     if (contact) {
       e.preventDefault();

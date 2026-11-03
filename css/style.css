@@ -343,6 +343,22 @@ mark { background: #F1D9A8; color: inherit; }
 .tdash { position: absolute; left: 10px; bottom: 10px; display: flex; gap: 4px; }
 .tdash b { display: block; width: 18px; height: 3px; }
 .tone-modes { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.filters.sm { padding-top: 0; }
+.filters.sm a { font-size: 14px; min-height: 36px; }
+.gsec { margin-top: 26px; }
+.gsec .shead { margin-bottom: 16px; }
+.lb-cap { margin: -6px 0 0; color: var(--paper); font-size: 14px; opacity: 0.85; text-align: center; }
+.lb-form { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-end; gap: 10px; max-width: 520px; }
+.lb-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: rgba(238, 235, 227, 0.7); width: 90px; }
+.lb-form label.wide { flex: 1 1 180px; width: auto; }
+.lb-form input { font: inherit; font-size: 16px; color: var(--paper); background: transparent; border: 1px solid rgba(238, 235, 227, 0.4); padding: 7px 10px; border-radius: 0; }
+.lb-form input:focus { outline: none; border-color: var(--paper); }
+.lb-form .links { width: 100%; align-items: center; }
+.lb-form .links span { font-size: 12px; color: rgba(238, 235, 227, 0.7); margin-right: 4px; }
+.overlay.lightbox { justify-content: flex-start; }
+.chat-pics { padding: 4px 0 8px; }
+.chat-pics .gimg { flex-basis: 110px; }
+button.item { padding: 0; border: 0; background: none; text-align: left; font: inherit; color: inherit; cursor: zoom-in; }
 
 /* ---------- chips and sheets ---------- */
 .chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
