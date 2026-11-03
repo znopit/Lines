@@ -13,17 +13,34 @@
   };
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
   const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
-  // Each preset keeps the four colors at a similar strength, so no one reads as an accident.
+  // The two home-page accents: the round dot on Main line and the solid Studies block.
+  const ACCENT = { circle: '#D0432E', block: '#2D4E9C' };
+  const DEFAULT_ACCENT = { ...ACCENT };
+  const SLOTS = [...ORDER, 'circle', 'block'];
+  const SLOT_LABEL = { circle: 'Circle', block: 'Block' };
+  // Each preset keeps its colors at a similar strength, so no one reads as an accident.
   const PRESETS = [
-    { name: 'Classic',         colors: { Leon: '#2D4E9C', Zoi: '#D0432E', Evan: '#B98516', Hudson: '#2F7D63' } },
-    { name: 'Ink & vermilion', colors: { Leon: '#1F2A44', Zoi: '#E0482F', Evan: '#A7792A', Hudson: '#4F7A6A' } },
-    { name: 'Klein & coral',   colors: { Leon: '#2440B8', Zoi: '#E0573F', Evan: '#C9962E', Hudson: '#2E8A7A' } },
-    { name: 'Dusk',            colors: { Leon: '#3A4E7A', Zoi: '#C4546A', Evan: '#B07A3A', Hudson: '#4E8073' } },
+    { name: 'Classic',         colors: { Leon: '#2D4E9C', Zoi: '#D0432E', Evan: '#B98516', Hudson: '#2F7D63', circle: '#D0432E', block: '#2D4E9C' } },
+    { name: 'Klein',           colors: { Leon: '#2B2B2E', Zoi: '#1E3BB0', Evan: '#5E6B33', Hudson: '#7B2236', circle: '#C9A45C', block: '#1E3BB0' } },
+    { name: 'Klein · grey',    colors: { Leon: '#6E7279', Zoi: '#1E3BB0', Evan: '#5E6B33', Hudson: '#7B2236', circle: '#C9A45C', block: '#1E3BB0' } },
+    { name: 'Ink & vermilion', colors: { Leon: '#1F2A44', Zoi: '#E0482F', Evan: '#A7792A', Hudson: '#4F7A6A', circle: '#E0482F', block: '#1F2A44' } },
+    { name: 'Klein & coral',   colors: { Leon: '#2440B8', Zoi: '#E0573F', Evan: '#C9962E', Hudson: '#2E8A7A', circle: '#E0573F', block: '#2440B8' } },
+    { name: 'Dusk',            colors: { Leon: '#3A4E7A', Zoi: '#C4546A', Evan: '#B07A3A', Hudson: '#4E8073', circle: '#C4546A', block: '#3A4E7A' } },
   ];
+  const HEX_RE = /^#?[0-9a-f]{6}$/i;
   ORDER.forEach((c) => {
     const v = store('lines:color:' + c);
-    if (v && /^#[0-9a-f]{6}$/i.test(v)) CHARS[c].color = v;
+    if (v && HEX_RE.test(v)) CHARS[c].color = v;
   });
+  Object.keys(ACCENT).forEach((k) => {
+    const v = store('lines:accent:' + k);
+    if (v && HEX_RE.test(v)) ACCENT[k] = v;
+  });
+  function applyAccents() {
+    document.documentElement.style.setProperty('--accent-circle', ACCENT.circle);
+    document.documentElement.style.setProperty('--accent-block', ACCENT.block);
+  }
+  applyAccents();
 
   const SECTIONS = [
     { key: 'main',      href: '#/main',      name: 'Main line',  desc: 'The chapters that form the main thread.' },
@@ -869,13 +886,17 @@
       <p class="small">${persisted ? 'Storage is marked as persistent on this device.' : 'Tip: add Lines to your Home Screen so the browser keeps this library safely. Your Lines folder in Files stays the original either way.'}</p>
 
       <section class="block">${sectionHead('COLORS', null)}
-        <p class="color-preview"><span style="color:${CHARS.Leon.color}">Leon</span> <span class="x">×</span> <span style="color:${CHARS.Zoi.color}">Zoi</span></p>
-        <div class="presets">${PRESETS.map((p, i) => `<button class="preset${ORDER.every((c) => p.colors[c].toLowerCase() === CHARS[c].color.toLowerCase()) ? ' on' : ''}" data-act="preset" data-i="${i}"><span class="pdots" aria-hidden="true">${ORDER.map((c) => `<i style="background:${p.colors[c]}"></i>`).join('')}</span>${esc(p.name)}</button>`).join('')}</div>
-        <p class="note-line">Start from a set, then fine-tune one person by tapping their swatch. Each color is used for their name, their lines and their dashes.</p>
-        <div class="colors">${ORDER.map((c) => `<div class="color-row">
-          <label class="swatch" style="background:${CHARS[c].color}"><input type="color" value="${CHARS[c].color}" data-color="${c}" aria-label="${c}’s color"></label>
-          <span class="color-name">${c}</span><span class="color-hex">${CHARS[c].color.toUpperCase()}</span>
-          ${CHARS[c].color.toLowerCase() !== DEFAULT_COLORS[c].toLowerCase() ? `<button class="linkbtn" data-act="color-reset" data-c="${c}">Reset</button>` : ''}
+        <div class="color-preview-wrap">
+          <p class="color-preview"><span data-preview="Leon" style="color:${CHARS.Leon.color}">Leon</span> <span class="x">×</span> <span data-preview="Zoi" style="color:${CHARS.Zoi.color}">Zoi</span></p>
+          <span class="preview-accents" aria-hidden="true"><i data-preview-bg="circle" class="pa-circle" style="background:${ACCENT.circle}"></i><i data-preview-bg="block" class="pa-block" style="background:${ACCENT.block}"></i></span>
+        </div>
+        <div class="presets">${PRESETS.map((p, i) => `<button class="preset${SLOTS.every((k) => p.colors[k].toLowerCase() === getSlot(k).toLowerCase()) ? ' on' : ''}" data-act="preset" data-i="${i}"><span class="pdots" aria-hidden="true">${SLOTS.map((k) => `<i style="background:${p.colors[k]}"></i>`).join('')}</span>${esc(p.name)}</button>`).join('')}</div>
+        <p class="note-line">Start from a set, then fine-tune. Tap a swatch to pick by eye, or type a color code. Each person’s color is used for their name, their lines and their dashes; Circle and Block are the two accents on the home page.</p>
+        <div class="colors">${SLOTS.map((k) => `<div class="color-row${CHARS[k] ? '' : ' accent-row'}">
+          <label class="swatch${k === 'circle' ? ' round' : k === 'block' ? ' square' : ''}" data-swatch="${k}" style="background:${getSlot(k)}"><input type="color" value="${getSlot(k).toLowerCase()}" data-slot="${k}" aria-label="${SLOT_LABEL[k] || k} color"></label>
+          <span class="color-name">${SLOT_LABEL[k] || k}</span>
+          <input class="hex" type="text" value="${getSlot(k).toUpperCase()}" data-hex="${k}" maxlength="7" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="${SLOT_LABEL[k] || k} color code">
+          <button class="linkbtn" data-act="color-reset" data-c="${k}">Reset</button>
         </div>`).join('')}</div>
       </section>
 
@@ -1019,12 +1040,15 @@
         el.textContent = 'Tap again to remove everything';
         setTimeout(() => { if (el.isConnected) { el.dataset.act = 'clear'; el.textContent = 'Remove everything from this device'; } }, 4000);
         break;
-      case 'color-reset':
-        setColor(el.dataset.c, DEFAULT_COLORS[el.dataset.c]);
+      case 'color-reset': {
+        const k = el.dataset.c;
+        setSlot(k, CHARS[k] ? DEFAULT_COLORS[k] : DEFAULT_ACCENT[k]);
+        paintSlot(k);
         break;
+      }
       case 'preset': {
         const p = PRESETS[+el.dataset.i];
-        if (p) { ORDER.forEach((c) => setColor(c, p.colors[c], false)); rerenderInPlace(); }
+        if (p) { SLOTS.forEach((k) => setSlot(k, p.colors[k])); rerenderInPlace(); }
         break;
       }
       case 'clear-confirm':
@@ -1038,21 +1062,43 @@
     route().then(() => window.scrollTo(0, y));
   }
 
-  function setColor(c, value, render = true) {
-    if (!CHARS[c] || !/^#[0-9a-f]{6}$/i.test(value)) return;
-    CHARS[c].color = value;
-    store('lines:color:' + c, value);
-    if (render) rerenderInPlace();
+  function getSlot(k) { return CHARS[k] ? CHARS[k].color : ACCENT[k]; }
+
+  // Saves a color without redrawing the page, so the system color picker stays open while it is used.
+  function setSlot(k, value) {
+    if (!HEX_RE.test(value || '')) return false;
+    const v = ('#' + value.replace('#', '')).toUpperCase();
+    if (CHARS[k]) { CHARS[k].color = v; store('lines:color:' + k, v); }
+    else if (k in ACCENT) { ACCENT[k] = v; store('lines:accent:' + k, v); applyAccents(); }
+    else return false;
+    return true;
   }
 
-  document.addEventListener('change', (e) => {
-    const input = e.target.closest('input[data-color]');
-    if (input) setColor(input.dataset.color, input.value);
-  });
+  function paintSlot(k, from) {
+    const v = getSlot(k);
+    document.querySelectorAll(`[data-swatch="${k}"]`).forEach((el) => { el.style.background = v; });
+    document.querySelectorAll(`[data-preview="${k}"]`).forEach((el) => { el.style.color = v; });
+    document.querySelectorAll(`[data-preview-bg="${k}"]`).forEach((el) => { el.style.background = v; });
+    document.querySelectorAll(`input[data-slot="${k}"]`).forEach((el) => { if (el !== from) el.value = v.toLowerCase(); });
+    document.querySelectorAll(`input[data-hex="${k}"]`).forEach((el) => { if (el !== from) el.value = v; el.classList.remove('bad'); });
+    document.querySelectorAll('.preset.on').forEach((el) => el.classList.remove('on'));
+  }
 
-  document.addEventListener('input', (e) => {
-    const input = e.target.closest('input[data-color]');
-    if (input) input.parentElement.style.background = input.value;
+  function onColorInput(e) {
+    const picker = e.target.closest('input[data-slot]');
+    if (picker) { if (setSlot(picker.dataset.slot, picker.value)) paintSlot(picker.dataset.slot, picker); return; }
+    const hex = e.target.closest('input[data-hex]');
+    if (hex) {
+      const v = hex.value.trim();
+      if (setSlot(hex.dataset.hex, v)) paintSlot(hex.dataset.hex, hex);
+      else hex.classList.toggle('bad', v.replace('#', '').length >= 6);
+    }
+  }
+  document.addEventListener('input', onColorInput);
+  document.addEventListener('change', onColorInput);
+  document.addEventListener('focusout', (e) => {
+    const hex = e.target.closest && e.target.closest('input[data-hex]');
+    if (hex) { hex.value = getSlot(hex.dataset.hex); hex.classList.remove('bad'); }
   });
 
   document.addEventListener('submit', (e) => {
