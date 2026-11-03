@@ -11,7 +11,7 @@
     Evan:   { full: 'Evan J. Mercer',   color: '#5E6B33', object: 'Save files',     objectZh: '存档',     alias: ['evan', '埃文'] },
     Hudson: { full: 'Hudson M. Foster', color: '#7B2236', object: 'Diary',          objectZh: '日记',     alias: ['hudson', '哈德森'] },
   };
-  const APP_VERSION = '2026-11-03 · 11';
+  const APP_VERSION = '2026-11-03 · 12';
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
   const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
   // The two home-page accents: the round dot on Main line and the solid Studies block.
@@ -359,7 +359,7 @@
       // With ｜ in the heading, split only there; otherwise split on spaces but keep English phrases together.
       let tags = /[｜|]/.test(note)
         ? note.split(/\s*[｜|]\s*/).map((t) => t.trim()).filter(Boolean)
-        : joinLatin(note.split(/\s+/).filter(Boolean));
+        : joinTime(joinLatin(note.split(/\s+/).filter(Boolean)));
       const isKey = (t) => /^重点篇?$/.test(t);
       const key = tags.some(isKey);
       tags = tags.filter((t) => !isKey(t));
@@ -382,6 +382,18 @@
       if (prev && /[A-Za-z0-9.'&]$/.test(prev) && /^[A-Za-z]/.test(t) && !/^(Leon|Zoi|Evan|Hudson)(?![A-Za-z])/.test(t)) {
         out[out.length - 1] = prev + ' ' + t;
       } else out.push(t);
+    }
+    return out;
+  }
+
+  // "温泉第一天 晚上" reads as one tag, matching "温泉篇第三天晚上" elsewhere.
+  const TIME_WORDS = /^(凌晨|清晨|早晨|早上|上午|中午|午后|下午|傍晚|白天|晚上|夜晚|夜里|深夜|早午|晚)$/;
+  function joinTime(tokens) {
+    const out = [];
+    for (const t of tokens) {
+      const prev = out[out.length - 1];
+      if (prev && TIME_WORDS.test(t) && /第[一二三四五六七八九十\d]+天$/.test(prev)) out[out.length - 1] = prev + t;
+      else out.push(t);
     }
     return out;
   }
@@ -447,7 +459,17 @@
       const m = base.match(/第(\d{1,4})篇/) || base.match(/(?:^|[｜|])(\d{1,4})(?:[｜|]|$)/);
       if (m) ep = parseInt(m[1], 10);
     }
-    let title = meta['标题'] || base.replace(/^<[^>]*>/, '').trim();
+    // Without a 标题 line, the file name gives the title once the type, 篇号 and names are taken out:
+    // 1v1｜163｜Zoi×Evan｜早晨 仙本那早餐 → 早晨 仙本那早餐
+    let title = meta['标题'];
+    if (!title) {
+      const segs = base.replace(/^<[^>]*>/, '').split(/[｜|]/).map((x) => x.trim()).filter(Boolean);
+      const rest = segs.filter((x) =>
+        !/^(1v1|支线|短信|日记|物品|物件|存档|留言|档案|插画|速写|概览|研究|Leon x Zoi)$/i.test(x) &&
+        !/^第?\d{1,4}篇?$/.test(x) &&
+        !(detectChars(x).length && !x.replace(/Leon|Zoi|Evan|Hudson|里昂|[×xX&、\s]/gi, '')));
+      title = rest.join('｜') || base;
+    }
     return {
       kind: 'doc', id: type + ':' + rec.name, type, title, chars, ep, date: meta['日期'] || '',
       image: meta['图片'] || '', text: body.trim(), path: rec.name,
