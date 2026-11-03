@@ -11,7 +11,7 @@
     Evan:   { full: 'Evan J. Mercer',   color: '#5E6B33', object: 'Save files',     objectZh: '存档',     alias: ['evan', '埃文'] },
     Hudson: { full: 'Hudson M. Foster', color: '#7B2236', object: 'Diary',          objectZh: '日记',     alias: ['hudson', '哈德森'] },
   };
-  const APP_VERSION = '2026-11-03 · 9';
+  const APP_VERSION = '2026-11-03 · 10';
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
   const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
   // The two home-page accents: the round dot on Main line and the solid Studies block.
@@ -357,8 +357,9 @@
       if (pm) { part = cnNum(pm[1]); note = note.slice(pm[0].length).replace(/^[｜|\s]+/, ''); }
       let tags = note.split(/\s*[｜|]\s*|\s+/).map((t) => t.trim()).filter(Boolean);
       if (p.structured) tags = note.split(/\s*[｜|]\s*/).map((t) => t.trim()).filter(Boolean);
-      const key = tags.includes('重点');
-      tags = tags.filter((t) => t !== '重点');
+      const isKey = (t) => /^重点篇?$/.test(t);
+      const key = tags.some(isKey);
+      tags = tags.filter((t) => !isKey(t));
       const ch = {
         kind: 'chapter', num: p.num, part, note, tags, key,
         arc: arcName, text: p.lines.join('\n').trim(), path: rec.name,
@@ -465,6 +466,20 @@
       if (!a.range && a.chapters.length) a.range = [a.chapters[0].num, a.chapters[a.chapters.length - 1].num];
     });
     arcList.sort((a, b) => (a.range ? a.range[0] : 1e9) - (b.range ? b.range[0] : 1e9));
+
+    // Who is in each chapter: 【人物】 in the file wins; otherwise count how often each name appears.
+    // A person counts when named at least 6 times and at least 30% as often as the most-named person.
+    arcList.forEach((a) => a.chapters.forEach((c) => {
+      if (c.sections['人物']) { c.chars = parseChars(c.sections['人物']); return; }
+      const n = {
+        Leon: (c.text.match(/Leon|里昂|Kennedy/g) || []).length,
+        Zoi: (c.text.match(/Zoi|雪儿/g) || []).length,
+        Evan: (c.text.match(/Evan/g) || []).length,
+        Hudson: (c.text.match(/Hudson|Hudbear/g) || []).length,
+      };
+      const top = Math.max(...Object.values(n));
+      c.chars = ORDER.filter((k) => n[k] >= 6 && n[k] >= top * 0.3);
+    }));
 
     const ordered = [];
     arcList.forEach((a) => a.chapters.forEach((c) => ordered.push(c)));
@@ -590,13 +605,13 @@
     const isCh = item.kind === 'chapter';
     const href = isCh ? '#/ch/' + enc(item.id) : '#/doc/' + enc(item.id);
     const num = isCh ? pad(item.num, 3) + (item.part ? '.' + item.part : '') : item.ep != null ? pad(item.ep, 3) : '—';
-    const title = isCh ? (opts.chapterTitle ? item.title : excerpt(item.summary || item.text, 32) || item.title) : item.title;
+    const title = isCh ? (opts.chapterTitle ? item.title : excerpt(item.text, 32) || item.title) : item.title;
     // Chapter tags read as one quiet line; 重点 becomes a gold mark instead of a tag.
     const meta = isCh
       ? esc([opts.noNum && item.part ? item.label : '', ...item.tags.slice(0, 3)].filter(Boolean).join(' · '))
       : [opts.showType ? TYPE_LABEL[item.type] : '', pairLabel(item.chars), item.date].filter(Boolean).map(esc).join(' · ');
     const mark = isCh && item.key ? '<i class="key-mark" title="重点" aria-label="Key chapter"></i>' : '';
-    return `<a class="row${opts.noNum ? ' no-num' : ''}${isCh && !opts.chapterTitle ? ' ch-row' : ''}" href="${href}"><span class="row-num">${num}</span><span class="row-main"><span class="row-title">${mark}${esc(title)}</span>${meta ? `<span class="row-meta${isCh ? ' one-line' : ''}">${meta}</span>` : ''}</span>${isCh ? '' : dashes(item.chars)}</a>`;
+    return `<a class="row${opts.noNum ? ' no-num' : ''}${isCh && !opts.chapterTitle ? ' ch-row' : ''}" href="${href}"><span class="row-num">${num}</span><span class="row-main"><span class="row-title">${mark}${esc(title)}</span>${meta ? `<span class="row-meta${isCh ? ' one-line' : ''}">${meta}</span>` : ''}</span>${dashes(item.chars)}</a>`;
   }
 
   // ---------- Body formatting ----------
@@ -734,19 +749,30 @@
     </a>`;
   }
 
-  function viewMain(arcName) {
+  const MAIN_FILTERS = [
+    { key: 'pair', label: 'Leon × Zoi', chars: ['Leon', 'Zoi'], test: (c) => c.chars.length === 2 && c.chars.includes('Leon') && c.chars.includes('Zoi') },
+    { key: 'Evan', label: 'with Evan', chars: ['Evan'], test: (c) => c.chars.includes('Evan') },
+    { key: 'Hudson', label: 'with Hudson', chars: ['Hudson'], test: (c) => c.chars.includes('Hudson') },
+    { key: 'four', label: 'All four', chars: ORDER, test: (c) => ORDER.every((k) => c.chars.includes(k)) },
+  ];
+
+  function viewMain(arcName, params) {
     if (!LIB.arcs.length) return shell(pageTitle('Main line', 'The chapters that form the main thread.') + emptyState('No main line files yet. Files whose name contains 主线 are split into chapters automatically.'));
     const open = arcName || (LIB.arcs[LIB.arcs.length - 1] || {}).name;
+    const f = MAIN_FILTERS.find((x) => x.key === (params && params.get('f')));
+    const filters = `<div class="filters"><a href="#/main" class="${!f ? 'on' : ''}">All</a>${MAIN_FILTERS.map((x) => `<a href="#/main?f=${x.key}" class="${f === x ? 'on' : ''}">${dashes(x.chars, 'dashes sm')}${esc(x.label)}</a>`).join('')}</div>`;
     const body = LIB.arcs.map((a) => {
       const ov = overviewFor(a.name);
-      return `<details class="arc" ${a.name === open ? 'open' : ''} id="arc-${enc(a.name)}">
-        <summary><span class="arc-title">${esc(a.name)}<sup>${a.range ? a.range.join('–') : ''}</sup></span><span class="arc-count">${a.chapters.length}</span></summary>
+      const list = f ? a.chapters.filter(f.test) : a.chapters;
+      if (f && !list.length) return '';
+      return `<details class="arc" ${f || a.name === open ? 'open' : ''} id="arc-${enc(a.name)}">
+        <summary><span class="arc-title">${esc(a.name)}<sup>${a.range ? a.range.join('–') : ''}</sup></span><span class="arc-count">${list.length}</span></summary>
         ${ov ? `<a class="arc-ov" href="#/doc/${enc(ov.id)}">Overview ↗</a>` : ''}
         ${a.intro ? `<details class="notes"><summary>About this arc</summary><div class="body">${formatBody(a.intro, { speakers: false })}</div></details>` : ''}
-        <div class="rows">${a.chapters.map((c) => rowHTML(c)).join('')}</div>
+        <div class="rows">${list.map((c) => rowHTML(c)).join('')}</div>
       </details>`;
     }).join('');
-    return shell(pageTitle('Main line', 'The chapters that form the main thread.') + `<div class="arcs-list">${body}</div>`);
+    return shell(pageTitle('Main line', 'The chapters that form the main thread.') + filters + `<div class="arcs-list">${body}</div>`);
   }
 
   function shell(inner) {
@@ -818,7 +844,7 @@
       <div class="progress"><span style="width:${Math.round(pos * 100)}%;background:${CHARS.Leon.color}"></span><span style="width:${Math.round(pos * 100)}%;background:${CHARS.Zoi.color}"></span></div>
       <div class="rhead">
         <h1 class="bignum" aria-label="${esc(ch.title)}">(${ch.label})</h1>
-        <div class="rmeta"><a href="#/main/${enc(ch.arc)}">${esc(ch.arc)}</a>${ch.key ? '<span class="tag key">重点</span>' : ''}${ch.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>
+        <div class="rmeta">${dashes(ch.chars, 'dashes sm')}<a href="#/main/${enc(ch.arc)}">${esc(ch.arc)}</a>${ch.key ? '<span class="tag key">重点</span>' : ''}${ch.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>
       </div>
       ${chapterNotes(ch)}
       <article class="body">${formatBody(ch.text)}</article>
@@ -1079,7 +1105,7 @@
     let html;
     switch (parts[0]) {
       case undefined: html = viewHome(); break;
-      case 'main': html = viewMain(parts[1]); break;
+      case 'main': html = viewMain(parts[1], params); break;
       case 'ch': html = viewChapter(parts[1]); break;
       case 'doc': html = viewDoc(parts[1]); break;
       case 'dialogues': html = viewList('dialogue', params); break;
