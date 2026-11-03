@@ -1,6 +1,6 @@
 /* Lines service worker: keeps the app shell and fonts available offline.
    The library's content is never fetched or cached here; it lives in IndexedDB on the device. */
-const SHELL_CACHE = 'lines-shell-v1';
+const SHELL_CACHE = 'lines-shell-v2';
 const FONT_CACHE = 'lines-fonts';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'js/app.js', 'js/zip.js', 'manifest.webmanifest',

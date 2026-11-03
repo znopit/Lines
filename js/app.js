@@ -12,6 +12,11 @@
     Hudson: { full: 'Hudson M. Foster', color: '#2F7D63', object: 'Diary',          objectZh: '日记',     alias: ['hudson', '哈德森'] },
   };
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
+  const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
+  ORDER.forEach((c) => {
+    const v = store('lines:color:' + c);
+    if (v && /^#[0-9a-f]{6}$/i.test(v)) CHARS[c].color = v;
+  });
 
   const SECTIONS = [
     { key: 'main',      href: '#/main',      name: 'Main line',  desc: 'The chapters that form the main thread.' },
@@ -431,22 +436,24 @@
 
   function bagelSVG() {
     const seeds = [[170,140,30],[330,150,-20],[362,238,60],[140,240,-40],[192,330,15],[312,338,-50],[292,418,20],[205,414,-30],[384,300,10],[118,302,70],[302,96,45],[196,92,-60],[398,198,0],[104,194,30],[342,384,-15],[160,384,40]];
-    return `<svg class="bagel" viewBox="0 0 500 500" role="img" aria-label="Four characters on a ring. Lines run from Zoi to Leon, Evan and Hudson.">
+    // Leon and Zoi sit on the axis through the hole; Evan and Hudson join Zoi from either side.
+    return `<svg class="bagel" viewBox="-50 0 600 500" role="img" aria-label="Four characters on a ring. Leon and Zoi are joined through the centre; Evan and Hudson each have a line to Zoi.">
       <defs>
-        <linearGradient id="gZL" gradientUnits="userSpaceOnUse" x1="250" y1="50" x2="77" y2="350"><stop offset="0" stop-color="${CHARS.Zoi.color}"/><stop offset="1" stop-color="${CHARS.Leon.color}"/></linearGradient>
-        <linearGradient id="gZE" gradientUnits="userSpaceOnUse" x1="250" y1="50" x2="423" y2="350"><stop offset="0" stop-color="${CHARS.Zoi.color}"/><stop offset="1" stop-color="${CHARS.Evan.color}"/></linearGradient>
-        <linearGradient id="gZH" gradientUnits="userSpaceOnUse" x1="250" y1="50" x2="250" y2="450"><stop offset="0" stop-color="${CHARS.Zoi.color}"/><stop offset="1" stop-color="${CHARS.Hudson.color}"/></linearGradient>
+        <linearGradient id="gZL" gradientUnits="userSpaceOnUse" x1="250" y1="50" x2="250" y2="450"><stop offset="0" stop-color="${CHARS.Zoi.color}"/><stop offset="1" stop-color="${CHARS.Leon.color}"/></linearGradient>
+        <linearGradient id="gZE" gradientUnits="userSpaceOnUse" x1="250" y1="50" x2="77" y2="150"><stop offset="0" stop-color="${CHARS.Zoi.color}"/><stop offset="1" stop-color="${CHARS.Evan.color}"/></linearGradient>
+        <linearGradient id="gZH" gradientUnits="userSpaceOnUse" x1="250" y1="50" x2="423" y2="150"><stop offset="0" stop-color="${CHARS.Zoi.color}"/><stop offset="1" stop-color="${CHARS.Hudson.color}"/></linearGradient>
       </defs>
       <circle cx="250" cy="250" r="200" fill="none" stroke="var(--ink)" stroke-width="1.2"/>
-      <circle cx="250" cy="250" r="62" fill="none" stroke="var(--ink)" stroke-width="1.2"/>
       <g fill="var(--ink)">${seeds.map(([x, y, r]) => `<ellipse cx="${x}" cy="${y}" rx="4.5" ry="1.8" transform="rotate(${r} ${x} ${y})"/>`).join('')}</g>
-      <line x1="250" y1="50" x2="77" y2="350" stroke="url(#gZL)" stroke-width="3"/>
-      <line x1="250" y1="50" x2="423" y2="350" stroke="url(#gZE)" stroke-width="1.5"/>
-      <line x1="250" y1="50" x2="250" y2="450" stroke="url(#gZH)" stroke-width="1.5"/>
-      <a href="#/c/Zoi"><circle cx="250" cy="50" r="10" fill="${CHARS.Zoi.color}" stroke="var(--paper)" stroke-width="3"/><text x="250" y="27" text-anchor="middle">Zoi</text></a>
-      <a href="#/c/Leon"><circle cx="77" cy="350" r="10" fill="${CHARS.Leon.color}" stroke="var(--paper)" stroke-width="3"/><text x="60" y="380" text-anchor="end">Leon</text></a>
-      <a href="#/c/Evan"><circle cx="423" cy="350" r="10" fill="${CHARS.Evan.color}" stroke="var(--paper)" stroke-width="3"/><text x="440" y="380">Evan</text></a>
-      <a href="#/c/Hudson"><circle cx="250" cy="450" r="10" fill="${CHARS.Hudson.color}" stroke="var(--paper)" stroke-width="3"/><text x="250" y="484" text-anchor="middle">Hudson</text></a>
+      <line x1="250" y1="50" x2="250" y2="450" stroke="url(#gZL)" stroke-width="3.5"/>
+      <line x1="250" y1="50" x2="77" y2="150" stroke="url(#gZE)" stroke-width="1.5"/>
+      <line x1="250" y1="50" x2="423" y2="150" stroke="url(#gZH)" stroke-width="1.5"/>
+      <circle cx="250" cy="250" r="62" fill="var(--paper)" stroke="var(--ink)" stroke-width="1.2"/>
+      <line x1="250" y1="188" x2="250" y2="312" stroke="url(#gZL)" stroke-width="3.5" stroke-dasharray="2 7" stroke-linecap="round"/>
+      <a href="#/c/Zoi"><circle cx="250" cy="50" r="11" fill="${CHARS.Zoi.color}" stroke="var(--paper)" stroke-width="3"/><text x="250" y="26" text-anchor="middle">Zoi</text></a>
+      <a href="#/c/Leon"><circle cx="250" cy="450" r="11" fill="${CHARS.Leon.color}" stroke="var(--paper)" stroke-width="3"/><text x="250" y="486" text-anchor="middle">Leon</text></a>
+      <a href="#/c/Evan"><circle cx="77" cy="150" r="9" fill="${CHARS.Evan.color}" stroke="var(--paper)" stroke-width="3"/><text x="60" y="140" text-anchor="end">Evan</text></a>
+      <a href="#/c/Hudson"><circle cx="423" cy="150" r="9" fill="${CHARS.Hudson.color}" stroke="var(--paper)" stroke-width="3"/><text x="440" y="140">Hudson</text></a>
     </svg>`;
   }
 
@@ -581,7 +588,7 @@
         <div class="hero-line">
           <h1 class="mega">Lines</h1>
           <span class="rule"></span>
-          <p class="pair"><span style="color:var(--blue)">Leon</span> <span class="x">×</span> <span style="color:var(--red)">Zoi</span></p>
+          <p class="pair"><span style="color:${CHARS.Leon.color}">Leon</span> <span class="x">×</span> <span style="color:${CHARS.Zoi.color}">Zoi</span></p>
         </div>
         <div class="hero-sub">
           <div class="hero-text">
@@ -691,7 +698,7 @@
     CURRENT_TEXT = { title: ch.title + (ch.note ? ' ' + ch.note : ''), text: ch.text };
     return `${topbar()}<main class="wrap reader">
       ${readerActions('#/main/' + enc(ch.arc), 'Main line')}
-      <div class="progress"><span style="width:${Math.round(pos * 100)}%;background:var(--blue)"></span><span style="width:${Math.round(pos * 100)}%;background:var(--red)"></span></div>
+      <div class="progress"><span style="width:${Math.round(pos * 100)}%;background:${CHARS.Leon.color}"></span><span style="width:${Math.round(pos * 100)}%;background:${CHARS.Zoi.color}"></span></div>
       <div class="rhead">
         <h1 class="bignum" aria-label="${esc(ch.title)}">(${ch.num})</h1>
         <div class="rmeta"><a href="#/main/${enc(ch.arc)}">${esc(ch.arc)}</a>${ch.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>
@@ -856,6 +863,15 @@
       </div>
       <p class="small">${persisted ? 'Storage is marked as persistent on this device.' : 'Tip: add Lines to your Home Screen so the browser keeps this library safely. Your Lines folder in Files stays the original either way.'}</p>
 
+      <section class="block">${sectionHead('COLORS', null)}
+        <p class="note-line">Each person’s color is used for their name on the home page, their lines and their dashes. Tap a swatch to change it.</p>
+        <div class="colors">${ORDER.map((c) => `<div class="color-row">
+          <label class="swatch" style="background:${CHARS[c].color}"><input type="color" value="${CHARS[c].color}" data-color="${c}" aria-label="${c}’s color"></label>
+          <span class="color-name">${c}</span><span class="color-hex">${CHARS[c].color.toUpperCase()}</span>
+          ${CHARS[c].color.toLowerCase() !== DEFAULT_COLORS[c].toLowerCase() ? `<button class="linkbtn" data-act="color-reset" data-c="${c}">Reset</button>` : ''}
+        </div>`).join('')}</div>
+      </section>
+
       <section class="block">${sectionHead('FILE FORMAT', null)}
         <p class="note-line">Main line files need no changes: lines like 第93篇 split them into chapters, and the file name gives the arc (e.g. 〈主线〉Leon x Zoi｜93-114｜洛杉矶｜上海篇.txt). Every other file can start with a short header:</p>
         <pre class="code">类型：1v1
@@ -996,10 +1012,31 @@
         el.textContent = 'Tap again to remove everything';
         setTimeout(() => { if (el.isConnected) { el.dataset.act = 'clear'; el.textContent = 'Remove everything from this device'; } }, 4000);
         break;
+      case 'color-reset':
+        setColor(el.dataset.c, DEFAULT_COLORS[el.dataset.c]);
+        break;
       case 'clear-confirm':
         await clearRecords(); await loadLibrary(); route(); toast('The library on this device is empty.');
         break;
     }
+  });
+
+  function setColor(c, value) {
+    if (!CHARS[c] || !/^#[0-9a-f]{6}$/i.test(value)) return;
+    CHARS[c].color = value;
+    store('lines:color:' + c, value);
+    const y = window.scrollY;
+    route().then(() => window.scrollTo(0, y));
+  }
+
+  document.addEventListener('change', (e) => {
+    const input = e.target.closest('input[data-color]');
+    if (input) setColor(input.dataset.color, input.value);
+  });
+
+  document.addEventListener('input', (e) => {
+    const input = e.target.closest('input[data-color]');
+    if (input) input.parentElement.style.background = input.value;
   });
 
   document.addEventListener('submit', (e) => {
