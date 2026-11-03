@@ -11,7 +11,7 @@
     Evan:   { full: 'Evan J. Mercer',   color: '#5E6B33', object: 'Save files',     objectZh: '存档',     alias: ['evan', '埃文'] },
     Hudson: { full: 'Hudson M. Foster', color: '#7B2236', object: 'Diary',          objectZh: '日记',     alias: ['hudson', '哈德森'] },
   };
-  const APP_VERSION = '2026-11-03 · 14';
+  const APP_VERSION = '2026-11-03 · 15';
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
   const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
   // The two home-page accents: the round dot on Main line and the solid Studies block.
@@ -47,7 +47,7 @@
   const NAV = [
     { key: 'main',       href: '#/main',       name: 'Main line',  desc: 'The chapters that form the main thread.' },
     { key: 'dialogues',  href: '#/dialogues',  name: 'Dialogues',  desc: 'One-to-one conversations, kept in their own words.' },
-    { key: 'messages',   href: '#/messages',   name: 'Messages',   desc: 'Texts sent between them.' },
+    { key: 'messages',   href: '#/messages',   name: 'Messages',   desc: 'Zoi’s phone: the texts between them.' },
     { key: 'characters', href: '#/characters', name: 'Characters', desc: 'Four people, their own lines.' },
     { key: 'timeline',   href: '#/timeline',   name: 'Timeline',   desc: 'Everything, by chapter number.' },
     { key: 'gallery',    href: '#/gallery',    name: 'Gallery',    desc: 'Portraits, sketches and photographs.' },
@@ -176,6 +176,19 @@
   const deleteRecord = (key) => idb('readwrite', (s) => s.delete(key));
   const clearRecords = () => idb('readwrite', (s) => s.clear());
 
+  // Things the reader sets inside the app (pinned messages, contact names) live in one small file,
+  // so Export carries them to Files with everything else and Import brings them back.
+  const SETTINGS_KEY = 'lines-settings.json';
+  const blankSettings = () => ({ pins: {}, contacts: {}, group: { name: '', nick: {} } });
+  let SETTINGS = blankSettings();
+  function readSettings(text) {
+    try {
+      const v = JSON.parse(text) || {};
+      SETTINGS = { pins: v.pins || {}, contacts: v.contacts || {}, group: { name: (v.group && v.group.name) || '', nick: (v.group && v.group.nick) || {} } };
+    } catch (e) { SETTINGS = blankSettings(); }
+  }
+  const saveSettings = () => putRecords([{ key: SETTINGS_KEY, name: SETTINGS_KEY, folder: '', kind: 'settings', text: JSON.stringify(SETTINGS, null, 2), added: Date.now() }]);
+
   // ---------- Import / export ----------
 
   function makeRecord(path, data) {
@@ -185,6 +198,7 @@
     if (!name || name.startsWith('.')) return null;
     const folder = path.slice(0, path.length - name.length).replace(/\/$/, '');
     const ext = (name.split('.').pop() || '').toLowerCase();
+    if (name === SETTINGS_KEY) return { key: name, name, folder: '', kind: 'settings', text: decodeText(data), added: Date.now() };
     if (['txt', 'md', 'markdown'].includes(ext)) {
       return { key: name, name, folder, kind: 'text', text: decodeText(data).replace(/\r\n?/g, '\n'), added: Date.now() };
     }
@@ -228,7 +242,7 @@
     const te = new TextEncoder();
     const items = recs.map((r) => ({
       name: 'Lines/' + (r.folder ? r.folder.replace(/^Lines\/?/, '') + (r.folder.replace(/^Lines\/?/, '') ? '/' : '') : '') + r.name,
-      data: r.kind === 'text' ? te.encode(r.text) : new Uint8Array(r.buf),
+      data: r.kind === 'image' ? new Uint8Array(r.buf) : te.encode(r.text),
     }));
     const d = new Date();
     const blob = window.LinesZip.writeZip(items);
@@ -480,11 +494,13 @@
     LIB.images.forEach((im) => URL.revokeObjectURL(im.url));
     const arcs = new Map();
     const chapters = [], docs = [], images = [];
+    SETTINGS = blankSettings();
     for (const r of records) {
+      if (r.kind === 'settings') { readSettings(r.text); continue; }
       if (r.kind === 'image') {
         const where = (r.folder + '/' + r.name);
         images.push({
-          kind: 'image', id: 'img:' + r.name, name: r.name, folder: r.folder,
+          kind: 'image', id: 'img:' + r.name, key: r.key, name: r.name, folder: r.folder,
           url: URL.createObjectURL(new Blob([r.buf], { type: r.mime })),
           chars: detectChars(where),
           sketch: /插画|速写|sketch|drawing/i.test(where),
@@ -1096,6 +1112,7 @@
   }
 
   function backFor(d) {
+    if (d.type === 'message') { const t = THREADS.find((x) => x.key === threadKeyOf(d)); return ['#/messages/' + t.key, threadName(t)]; }
     let href = TYPE_HOME[d.type] || '#/studies';
     if ((d.type === 'note' || d.type === 'profile') && d.chars[0] && CHARS[d.chars[0]]) href = '#/c/' + d.chars[0];
     if (d.type === 'note' || d.type === 'profile') return [href, d.chars[0] || 'Characters'];
@@ -1190,6 +1207,7 @@
         <p class="lede">${info.full}</p>
         ${cover ? `<figure class="ccover"><img src="${cover.url}" alt=""></figure>` : ''}
       </div>
+      ${photoStrip(c)}
       ${objectSection(c)}
       ${notes.length ? `<section class="block">${sectionHead('NOTES', notes.length)}<div class="rows">${notes.map((d) => rowHTML(d)).join('')}</div></section>` : ''}
       ${profiles.length ? `<section class="block">${sectionHead('PROFILE', profiles.length)}${profiles.map((d) => `<details class="profile"><summary>${esc(d.title)}</summary><div class="body">${formatBody(d.text, { speakers: false })}</div></details>`).join('')}</section>` : ''}
@@ -1200,12 +1218,13 @@
 
   function viewGallery(params) {
     const f = params.get('f');
-    const imgs = LIB.images.filter((i) => !i.cover && (!f || i.chars.includes(f)));
-    const filters = `<div class="filters"><a href="#/gallery" class="${!f ? 'on' : ''}">All</a>${ORDER.map((c) => `<a href="#/gallery?f=${c}" class="${f === c ? 'on' : ''}">${dashes([c], 'dashes sm')}${c}</a>`).join('')}</div>`;
+    const imgs = LIB.images.filter((i) => !i.cover && (!f || (f === 'sketch' ? i.sketch : i.chars.includes(f))));
+    const filters = `<div class="filters"><a href="#/gallery" class="${!f ? 'on' : ''}">All</a>${ORDER.map((c) => `<a href="#/gallery?f=${c}" class="${f === c ? 'on' : ''}">${dashes([c], 'dashes sm')}${c}</a>`).join('')}<a href="#/gallery?f=sketch" class="${f === 'sketch' ? 'on' : ''}">Sketches</a></div>`;
+    const actions = `<div class="gal-actions"><button class="btn sm" data-act="add-images">Add images</button><button class="chip${toneOn() ? ' on' : ''}" data-act="tone" aria-pressed="${toneOn()}">Print tone · ${toneOn() ? 'on' : 'off'}</button></div>`;
     const grid = imgs.length
-      ? `<div class="gallery">${imgs.map((im) => `<button class="gimg" data-act="lightbox" data-src="${im.url}" aria-label="Open ${esc(im.name)}"><img src="${im.url}" alt="" loading="lazy"><span>${esc(stripExt(im.name))}</span></button>`).join('')}</div>`
-      : emptyState('No images yet. Put images in your Lines folder; a folder or file name with a character’s name files it under that character.');
-    return shell(pageTitle('Gallery', 'Portraits, sketches and photographs.') + filters + grid);
+      ? `<div class="gallery">${imgs.map((im) => `<button class="gimg" data-act="lightbox" data-key="${esc(im.key)}" aria-label="Open ${esc(im.name)}">${toned(im)}<span class="gcap">${esc(stripExt(im.name))}</span></button>`).join('')}</div>`
+      : emptyState('No images yet. Add them here, or put them in your Lines folder and import; a folder or file name with a character’s name files it under that character.');
+    return shell(pageTitle('Gallery', 'Portraits, sketches and photographs.') + actions + filters + grid);
   }
 
   function viewTimeline() {
@@ -1229,7 +1248,7 @@
     let persisted = false;
     try { persisted = navigator.storage && navigator.storage.persisted ? await navigator.storage.persisted() : false; } catch (e) { /* ignore */ }
     const texts = recs.filter((r) => r.kind === 'text').length;
-    const imgs = recs.length - texts;
+    const imgs = recs.filter((r) => r.kind === 'image').length;
     const files = [...recs].sort((a, b) => (a.folder + a.name).localeCompare(b.folder + b.name, 'zh'))
       .map((r) => `<li><span>${esc(r.folder ? r.folder + '/' : '')}<b>${esc(r.name)}</b></span><button class="linkbtn" data-act="del" data-key="${esc(r.key)}" aria-label="Remove ${esc(r.name)}">Remove</button></li>`).join('');
     return shell(pageTitle('Library', 'Import and export. Everything stays on this device.') + `
@@ -1270,12 +1289,267 @@
 标题：仙本那早餐
 ---
 正文……</pre>
-        <p class="note-line">类型 can be 1v1, 支线, 短信, 日记, 物品, 存档, 留言, 档案, 插画 or 概览 / 研究. Optional lines: 日期, 图片 (an image file name). Images in a folder named 插画 or 速写 go to Zoi’s sketchbook; images in a folder named 封面 named after a section (main, dialogues, side, messages, studies, gallery) or a character (Leon, Zoi, Evan, Hudson) become covers. Files with the same name replace each other.</p>
+        <p class="note-line">For texts, 人物 is Leon × Zoi, Zoi × Evan, Zoi × Hudson or 群聊 for the group chat. 类型 can be 1v1, 支线, 短信, 日记, 物品, 存档, 留言, 档案, 插画 or 概览 / 研究. Optional lines: 日期, 图片 (an image file name). Images in a folder named 插画 or 速写 go to Zoi’s sketchbook; images in a folder named 封面 named after a section (main, dialogues, side, messages, studies, gallery) or a character (Leon, Zoi, Evan, Hudson) become covers. Files with the same name replace each other.</p>
       </section>
 
       <section class="block">${sectionHead('FILES', recs.length)}
         ${recs.length ? `<ul class="files">${files}</ul><button class="btn danger" data-act="clear">Remove everything from this device</button>` : '<p class="note-line">No files yet.</p>'}
       </section>`);
+  }
+
+  // ---------- Images: tone, adding, retagging ----------
+
+  // Photos are shown as one-colour prints in their person's colour; the stored file never changes.
+  // Sketches keep their own colours.
+  const toneOn = () => store('lines:tone') !== 'off';
+  const toneColor = (im) => (im.chars[0] && CHARS[im.chars[0]] ? CHARS[im.chars[0]].color : '#141414');
+  const toned = (im, force) => `<span class="tone${(force ?? toneOn()) && !im.sketch ? ' on' : ''}" style="--tone:${toneColor(im)}"><img src="${im.url}" alt="" loading="lazy"></span>`;
+  const WHO = [['none', 'No one'], ['Leon', 'Leon'], ['Zoi', 'Zoi'], ['Evan', 'Evan'], ['Hudson', 'Hudson'], ['sketch', 'Sketch']];
+  const folderFor = (who) => (who === 'none' ? 'Gallery' : who === 'sketch' ? 'Gallery/插画' : 'Gallery/' + who);
+  const whoOf = (im) => (im.sketch ? 'sketch' : im.chars[0] || 'none');
+  let PENDING_IMAGES = [];
+  let LB_ORIGINAL = false;
+
+  function pickImages() {
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true; inp.hidden = true;
+    document.body.appendChild(inp);
+    inp.addEventListener('change', () => {
+      PENDING_IMAGES = [...inp.files];
+      inp.remove();
+      if (!PENDING_IMAGES.length) return;
+      const n = PENDING_IMAGES.length;
+      openOverlay(`<div class="sheet"><p class="sheet-k">${n} image${n === 1 ? '' : 's'}</p><h2>Who is in ${n === 1 ? 'it' : 'them'}?</h2>
+        <div class="chips">${WHO.map(([k, label]) => `<button class="chip" data-act="add-who" data-who="${k}">${CHARS[k] ? dashes([k], 'dashes sm') : ''}${label}</button>`).join('')}</div>
+        <p class="note-line">Sketch puts them in Zoi’s sketchbook and keeps their colours. You can change this later by opening the image.</p>
+        <button class="linkbtn" data-act="close">Cancel</button></div>`, 'sheet-ov');
+    });
+    inp.click();
+  }
+
+  async function addPendingImages(who) {
+    const taken = new Set(LIB.records.map((r) => r.key));
+    const recs = [];
+    for (const f of PENDING_IMAGES) {
+      let name = f.name || 'image.jpg';
+      if (!IMG_TYPES[(name.split('.').pop() || '').toLowerCase()]) name = stripExt(name) + '.jpg';
+      const stem = stripExt(name), ext = name.slice(stem.length);
+      for (let k = 2; taken.has(name); k++) name = `${stem}-${k}${ext}`;
+      taken.add(name);
+      const r = makeRecord(folderFor(who) + '/' + name, new Uint8Array(await f.arrayBuffer()));
+      if (r) { if (f.type && f.type.startsWith('image/')) r.mime = f.type; recs.push(r); }
+    }
+    PENDING_IMAGES = [];
+    closeOverlay();
+    if (!recs.length) { toast('Those files could not be read as images.'); return; }
+    await putRecords(recs);
+    await loadLibrary();
+    await route();
+    toast(`Added ${recs.length} image${recs.length === 1 ? '' : 's'}. Export when you want them in your Files too.`, 4000);
+  }
+
+  function openLightbox(key) {
+    const im = LIB.images.find((i) => i.key === key);
+    if (!im) return;
+    const cur = whoOf(im);
+    openOverlay(`<button class="lb-close menubtn" data-act="close">CLOSE ×</button>
+      <figure class="lb-fig">${toned(im, !LB_ORIGINAL && toneOn())}</figure>
+      <div class="lb-bar">
+        ${im.sketch ? '' : `<button class="chip" data-act="lb-tone" data-key="${esc(key)}">${LB_ORIGINAL || !toneOn() ? 'Show as print' : 'Show original'}</button>`}
+        <div class="chips">${WHO.map(([k, label]) => `<button class="chip${cur === k ? ' on' : ''}" data-act="lb-who" data-who="${k}" data-key="${esc(key)}">${label}</button>`).join('')}</div>
+        <button class="chip danger" data-act="lb-remove" data-key="${esc(key)}">Remove</button>
+      </div>`, 'lightbox');
+  }
+
+  async function retagImage(key, who) {
+    const rec = await idb('readonly', (s) => s.get(key));
+    if (!rec) return;
+    rec.folder = folderFor(who);
+    await putRecords([rec]);
+    await loadLibrary();
+    await route();
+    openLightbox(key);
+  }
+
+  function photoStrip(c) {
+    const imgs = LIB.images.filter((i) => !i.cover && !i.sketch && i.chars.includes(c));
+    if (!imgs.length) return '';
+    return `<section class="block">${sectionHead('PHOTOS', imgs.length, `<a href="#/gallery?f=${c}">Gallery ↗</a> `)}
+      <div class="strip">${imgs.slice(0, 12).map((im) => `<button class="gimg" data-act="lightbox" data-key="${esc(im.key)}" aria-label="Open ${esc(im.name)}">${toned(im)}</button>`).join('')}</div></section>`;
+  }
+
+  // ---------- Messages: Zoi's phone ----------
+
+  const THREADS = [
+    { key: 'leon', with: 'Leon', label: 'Leon × Zoi' },
+    { key: 'evan', with: 'Evan', label: 'Zoi × Evan' },
+    { key: 'hudson', with: 'Hudson', label: 'Zoi × Hudson' },
+    { key: 'group', label: 'Group chat' },
+  ];
+
+  function threadKeyOf(d) {
+    const named = d.chars.filter((c) => CHARS[c]);
+    if (d.chars.some((c) => /群|group/i.test(c)) || /群聊|group/i.test(d.path) || named.length >= 3) return 'group';
+    for (const t of THREADS) if (t.with && named.includes(t.with)) return t.key;
+    return 'group';
+  }
+
+  const threadDocs = (key) => docsOf('message').filter((d) => threadKeyOf(d) === key);
+  const groupNick = (c) => ((SETTINGS.group.nick || {})[c] || '').trim();
+  function threadName(t) {
+    if (t.key === 'group') return SETTINGS.group.name || 'Group chat';
+    return ((SETTINGS.contacts[t.key] || {}).name || '').trim() || t.with;
+  }
+
+  // The app icon is the four of them, so it is also the group's picture.
+  function groupAvatar() {
+    const L = CHARS.Leon.color, Z = CHARS.Zoi.color, E = CHARS.Evan.color, H = CHARS.Hudson.color;
+    return `<svg class="badge" viewBox="0 0 100 100" role="img" aria-label="Group">
+      <circle cx="50" cy="50" r="47" fill="var(--paper)"/>
+      <g stroke-width="2.4"><line x1="56" y1="57" x2="24" y2="18" stroke="${L}"/><line x1="56" y1="57" x2="18" y2="80" stroke="${E}"/><line x1="56" y1="57" x2="87" y2="64" stroke="${H}"/></g>
+      <circle cx="56" cy="57" r="13.5" fill="var(--paper)" stroke="#C9A45C" stroke-width="1.6"/>
+      <circle cx="24" cy="18" r="8.5" fill="${L}"/><circle cx="18" cy="80" r="5.8" fill="${E}"/><circle cx="87" cy="64" r="4.4" fill="${H}"/><circle cx="56" cy="57" r="8" fill="${Z}"/>
+      <circle cx="50" cy="50" r="47" fill="none" stroke="var(--ink)" stroke-width="1.3"/></svg>`;
+  }
+  const threadAvatar = (t) => (t.key === 'group' ? groupAvatar() : badgeSVG(t.with));
+
+  // A faint pattern behind each conversation, drawn from their own things.
+  function chatBg(key) {
+    const L = CHARS.Leon.color, Z = CHARS.Zoi.color, E = CHARS.Evan.color, H = CHARS.Hudson.color, G = '#C9A45C';
+    let svg;
+    if (key === 'leon') {
+      svg = `<svg xmlns="http://www.w3.org/2000/svg" width="140" height="140"><g fill-opacity="0.32"><circle cx="22" cy="26" r="3.5" fill="${G}"/><circle cx="96" cy="58" r="3.5" fill="${Z}"/><circle cx="52" cy="104" r="3.5" fill="${Z}"/><circle cx="118" cy="122" r="3.5" fill="${G}"/></g><g fill="none" stroke-opacity="0.3" stroke-width="1.4"><circle cx="70" cy="18" r="5" stroke="${G}"/><circle cx="16" cy="80" r="5" stroke="${Z}"/></g></svg>`;
+    } else if (key === 'evan') {
+      const pet = (x, y, r) => `<g transform="translate(${x} ${y}) rotate(${r})"><path d="M-4 7 V10 M4 7 V10" stroke="${E}" stroke-width="1.6" stroke-linecap="round"/><rect x="-9" y="-8" width="18" height="15" rx="5" fill="${E}"/><circle cx="-3.6" cy="-1" r="2.5" fill="#EEEBE3"/><circle cx="3.6" cy="-1" r="2.5" fill="#EEEBE3"/></g>`;
+      svg = `<svg xmlns="http://www.w3.org/2000/svg" width="150" height="150"><g opacity="0.26">${pet(30, 34, -12)}${pet(108, 82, 10)}${pet(52, 124, 4)}</g></svg>`;
+    } else if (key === 'hudson') {
+      const s = `fill="none" stroke="${H}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"`;
+      svg = `<svg xmlns="http://www.w3.org/2000/svg" width="170" height="170"><g opacity="0.3">
+        <g transform="translate(30 30) rotate(-35)"><path d="M-12 0 H10 M5 -4 L10 0 L5 4 M-12 0 L-15 -3 M-12 0 L-15 3" ${s}/></g>
+        <g transform="translate(124 36)"><path d="M-8 8 V-2 C -8 -7, -4 -10, 0 -10 C 4 -10, 8 -7, 8 -2 V8 L5 6 L2.5 8 L0 6 L-2.5 8 L-5 6 Z" ${s}/></g>
+        <path d="M60 112 C 52 98, 66 92, 70 102 C 74 112, 86 108, 82 96 C 79 86, 70 82, 76 72" ${s}/>
+        <g transform="translate(138 128) rotate(12)"><path d="M-9 -4 H8 V0 H-1 L-3 7 H-8 L-6 0 H-9 Z" ${s}/></g></g></svg>`;
+    } else {
+      const mini = (x, y) => `<g transform="translate(${x} ${y}) scale(0.34)"><g stroke-width="2.4" stroke-opacity="0.9"><line x1="56" y1="57" x2="24" y2="18" stroke="${L}"/><line x1="56" y1="57" x2="18" y2="80" stroke="${E}"/><line x1="56" y1="57" x2="87" y2="64" stroke="${H}"/></g><circle cx="24" cy="18" r="8.5" fill="${L}"/><circle cx="18" cy="80" r="5.8" fill="${E}"/><circle cx="87" cy="64" r="4.4" fill="${H}"/><circle cx="56" cy="57" r="8" fill="${Z}"/></g>`;
+      svg = `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><g opacity="0.22">${mini(10, 12)}${mini(92, 90)}</g></svg>`;
+    }
+    return `background-image:url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+  }
+
+  function parseMsgs(text) {
+    const items = [];
+    let who = null;
+    for (const raw of text.split('\n')) {
+      const t = raw.trim();
+      if (!t) continue;
+      if (/^[（(][\s\S]*[)）]$/.test(t)) { items.push({ kind: 'scene', text: t.slice(1, -1) }); continue; }
+      if (/^([一二三四五六七八九十百]+、|#{1,3}\s)/.test(t) || /^\d{1,2}[:：]\d{2}/.test(t)) { items.push({ kind: 'time', text: t.replace(/^#{1,3}\s/, '') }); continue; }
+      const sp = speakerOf(t, true);
+      if (sp) { who = sp.name; if (sp.rest) items.push({ kind: 'msg', who, text: sp.rest }); continue; }
+      items.push({ kind: 'msg', who, text: t });
+    }
+    return items;
+  }
+
+  function threadSummary(key) {
+    const docs = threadDocs(key);
+    let count = 0, last = null;
+    docs.forEach((d) => parseMsgs(d.text).forEach((m) => { if (m.kind === 'msg') { count++; last = m; } }));
+    const eps = docs.map((d) => d.ep).filter((n) => n != null);
+    return { docs, count, last, first: eps.length ? Math.min(...eps) : null, latest: eps.length ? Math.max(...eps) : null };
+  }
+
+  function viewMessages() {
+    const rows = THREADS.map((t) => {
+      const s = threadSummary(t.key);
+      const lastWho = s.last && s.last.who;
+      const prefix = s.last && t.key === 'group' && lastWho ? (lastWho === 'Zoi' ? 'You' : groupNick(lastWho) || lastWho) + ': ' : s.last && lastWho === 'Zoi' ? 'You: ' : '';
+      return `<a class="trow" href="#/messages/${t.key}">
+        <span class="trow-av">${threadAvatar(t)}</span>
+        <span class="trow-main"><span class="trow-name">${esc(threadName(t))}</span><span class="trow-last">${s.last ? esc(prefix + s.last.text) : '<em>No messages yet</em>'}</span></span>
+        <span class="trow-meta">${s.latest != null ? '第' + s.latest + '篇' : ''}${s.count ? `<b>${s.count}</b>` : ''}</span>
+      </a>`;
+    }).join('');
+    return shell(pageTitle('Messages', 'Zoi’s phone. The texts that the main line retells.') + `<div class="threads">${rows}</div>`);
+  }
+
+  function viewThread(key) {
+    const t = THREADS.find((x) => x.key === key);
+    if (!t) return viewMissing();
+    const s = threadSummary(key);
+    const pins = SETTINGS.pins[key] || [];
+    const isGroup = key === 'group';
+    const ids = new Map();
+    const segs = s.docs.map((d, di) => {
+      const ch = d.ep != null && LIB.chapters.find((c) => c.num === d.ep);
+      let prev = null, n = 0;
+      const items = parseMsgs(d.text).map((m) => {
+        if (m.kind === 'scene') { prev = null; return `<p class="msg-scene">${esc(m.text)}</p>`; }
+        if (m.kind === 'time') { prev = null; return `<p class="msg-time">${esc(m.text)}</p>`; }
+        n++;
+        const mid = d.path + '#' + n, id = `m${di}-${n}`;
+        ids.set(mid, id);
+        const me = m.who === 'Zoi';
+        let from = '';
+        if (isGroup && !me && m.who && m.who !== prev) {
+          const nick = groupNick(m.who);
+          from = `<p class="msg-from" style="color:${charColor(m.who)}"><b>${esc(nick || m.who)}</b>${nick ? `<span>${esc(m.who)}</span>` : ''}</p>`;
+        }
+        prev = m.who;
+        const pinned = pins.some((p) => p.mid === mid);
+        return `${from}<p class="bubble${me ? ' me' : ''}${pinned ? ' pinned' : ''}${/^[（(][\s\S]*[)）]$/.test(m.text) ? ' aside' : ''}" id="${id}" data-act="bubble" data-mid="${esc(mid)}">${esc(m.text)}</p>`;
+      }).join('');
+      return `<div class="seg"><span>${[d.ep != null ? '第' + d.ep + '篇' : '', d.date, d.title !== stripExt(d.path) ? d.title : ''].filter(Boolean).map(esc).join(' · ')}</span>${ch ? `<a href="#/ch/${enc(ch.id)}">Main line ↗</a>` : ''}</div>${items}`;
+    }).join('');
+    const pinHTML = pins.length ? `<div class="pins">${pins.map((p) => {
+      const id = ids.get(p.mid);
+      return `<button class="pin" data-act="goto-pin" data-target="${id || ''}"><span class="pin-k">Pinned</span><span class="pin-t">${esc(p.text)}</span></button>`;
+    }).join('')}</div>` : '';
+    const c = SETTINGS.contacts[key] || {};
+    const sub = isGroup
+      ? ORDER.map((x) => groupNick(x) || x).map(esc).join(', ')
+      : esc(CHARS[t.with].full) + (c.theirs ? ` · saves Zoi as “${esc(c.theirs)}”` : '');
+    const stats = s.count ? `${s.first != null ? 'Since 第' + s.first + '篇 · ' : ''}${s.count} message${s.count === 1 ? '' : 's'}` : 'No messages yet';
+    return `${topbar()}<main class="wrap chat-page">
+      <div class="rbar"><a href="#/messages">← Messages</a><button class="linkbtn" data-act="edit-contact" data-thread="${key}">Edit</button></div>
+      <div class="chat-head">
+        <span class="chat-av">${threadAvatar(t)}</span>
+        <h1>${esc(threadName(t))}</h1>
+        <p class="chat-sub">${sub}</p>
+        <p class="chat-stats">${stats}</p>
+      </div>
+      ${pinHTML}
+      <div class="chat" style='${chatBg(key)}'>
+        ${segs || '<p class="msg-scene">Messages filed under this conversation will show here. Put 类型：短信 and 人物：' + esc(isGroup ? '群聊' : t.label) + ' at the top of a file.</p>'}
+      </div>
+      <p class="note-line chat-hint">Tap a message to pin it to the top.</p>
+    </main>${footer()}`;
+  }
+
+  function openContactEditor(key) {
+    const t = THREADS.find((x) => x.key === key);
+    if (!t) return;
+    const field = (name, label, value, ph) => `<label class="field"><span>${label}</span><input name="${name}" type="text" value="${esc(value || '')}" placeholder="${esc(ph)}" autocomplete="off"></label>`;
+    let inner;
+    if (key === 'group') {
+      inner = field('gname', 'Group name', SETTINGS.group.name, 'Group chat') +
+        ORDER.map((c) => field('nick-' + c, `${c}’s name in the group`, groupNick(c), c)).join('');
+    } else {
+      const c = SETTINGS.contacts[key] || {};
+      inner = field('name', `Zoi saved him as`, c.name, t.with) + field('theirs', `${t.with} saved Zoi as`, c.theirs, 'Zoi');
+    }
+    openOverlay(`<form class="sheet" data-act="save-contact" data-thread="${key}"><p class="sheet-k">${esc(t.label)}</p><h2>Names</h2>${inner}
+      <span class="sheet-btns"><button class="btn sm" type="submit">Save</button><button class="linkbtn" type="button" data-act="close">Cancel</button></span></form>`, 'sheet-ov');
+  }
+
+  async function togglePin(key, mid, text) {
+    const list = SETTINGS.pins[key] || (SETTINGS.pins[key] = []);
+    const i = list.findIndex((p) => p.mid === mid);
+    if (i >= 0) list.splice(i, 1); else list.push({ mid, text });
+    if (!list.length) delete SETTINGS.pins[key];
+    await saveSettings();
+    rerenderInPlace();
+    toast(i >= 0 ? 'Unpinned.' : 'Pinned to the top.');
   }
 
   // ---------- Overlays ----------
@@ -1349,7 +1623,7 @@
       case 'doc': html = viewDoc(parts[1]); break;
       case 'dialogues': html = viewList('dialogue', params); break;
       case 'side': html = viewList('side', params); break;
-      case 'messages': html = viewList('message', params); break;
+      case 'messages': html = parts[1] ? viewThread(parts[1]) : viewMessages(); break;
       case 'studies': html = viewList('study', params); break;
       case 'characters': html = viewCharacters(); break;
       case 'c': html = viewCharacter(parts[1]); break;
@@ -1388,9 +1662,42 @@
         await saveBlob(new Blob([CURRENT_TEXT.title + '\n\n' + CURRENT_TEXT.text], { type: 'text/plain;charset=utf-8' }), name + '.txt');
         break;
       }
-      case 'lightbox':
-        openOverlay(`<button class="lb-close menubtn" data-act="close">CLOSE ×</button><img class="lb-img" src="${el.dataset.src}" alt="">`, 'lightbox');
+      case 'lightbox': LB_ORIGINAL = false; openLightbox(el.dataset.key); break;
+      case 'lb-tone': LB_ORIGINAL = !LB_ORIGINAL; if (!toneOn()) { store('lines:tone', 'on'); LB_ORIGINAL = false; route(); } openLightbox(el.dataset.key); break;
+      case 'lb-who': await retagImage(el.dataset.key, el.dataset.who); break;
+      case 'lb-remove':
+        if (el.dataset.sure) { await deleteRecord(el.dataset.key); closeOverlay(); await loadLibrary(); await route(); toast('Removed from this device.'); }
+        else { el.dataset.sure = '1'; el.textContent = 'Tap again to remove'; }
         break;
+      case 'add-images': pickImages(); break;
+      case 'add-who': await addPendingImages(el.dataset.who); break;
+      case 'tone': store('lines:tone', toneOn() ? 'off' : 'on'); rerenderInPlace(); break;
+      case 'bubble': {
+        const open = document.querySelector('.bubble-act');
+        const same = open && open.previousElementSibling === el;
+        if (open) open.remove();
+        document.querySelectorAll('.bubble.sel').forEach((b) => b.classList.remove('sel'));
+        if (same) break;
+        el.classList.add('sel');
+        const key = (location.hash.split('/')[2] || '').split('?')[0];
+        const pinned = (SETTINGS.pins[key] || []).some((p) => p.mid === el.dataset.mid);
+        el.insertAdjacentHTML('afterend', `<span class="bubble-act${el.classList.contains('me') ? ' me' : ''}"><button class="chip" data-act="pin" data-mid="${esc(el.dataset.mid)}">${pinned ? 'Unpin' : 'Pin'}</button></span>`);
+        break;
+      }
+      case 'pin': {
+        const key = (location.hash.split('/')[2] || '').split('?')[0];
+        const b = document.querySelector(`.bubble[data-mid="${CSS.escape(el.dataset.mid)}"]`);
+        await togglePin(key, el.dataset.mid, b ? b.textContent : '');
+        break;
+      }
+      case 'goto-pin': {
+        const t = el.dataset.target && document.getElementById(el.dataset.target);
+        if (!t) { toast('This message is no longer in the file.'); break; }
+        t.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        t.classList.add('flash'); setTimeout(() => t.classList.remove('flash'), 1600);
+        break;
+      }
+      case 'edit-contact': openContactEditor(el.dataset.thread); break;
       case 'del':
         await deleteRecord(el.dataset.key);
         await loadLibrary(); route(); toast('Removed.');
@@ -1472,7 +1779,24 @@
     if (hex) { hex.value = getSlot(hex.dataset.hex); hex.classList.remove('bad'); }
   });
 
-  document.addEventListener('submit', (e) => {
+  document.addEventListener('submit', async (e) => {
+    const contact = e.target.closest('[data-act="save-contact"]');
+    if (contact) {
+      e.preventDefault();
+      const key = contact.dataset.thread;
+      const v = (n) => ((contact.querySelector(`[name="${n}"]`) || {}).value || '').trim();
+      if (key === 'group') {
+        SETTINGS.group.name = v('gname');
+        ORDER.forEach((c) => { const x = v('nick-' + c); if (x) SETTINGS.group.nick[c] = x; else delete SETTINGS.group.nick[c]; });
+      } else {
+        SETTINGS.contacts[key] = { name: v('name'), theirs: v('theirs') };
+      }
+      await saveSettings();
+      closeOverlay();
+      rerenderInPlace();
+      toast('Saved. Export when you want this in your Files too.', 3000);
+      return;
+    }
     const tagForm = e.target.closest('[data-act="save-tags"]');
     if (tagForm) {
       e.preventDefault();
