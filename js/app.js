@@ -11,7 +11,7 @@
     Evan:   { full: 'Evan J. Mercer',   color: '#5E6B33', object: 'Save files',     objectZh: '存档',     alias: ['evan', '埃文'] },
     Hudson: { full: 'Hudson M. Foster', color: '#7B2236', object: 'Diary',          objectZh: '日记',     alias: ['hudson', '哈德森'] },
   };
-  const APP_VERSION = '2026-11-03 · 12';
+  const APP_VERSION = '2026-11-03 · 13';
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
   const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
   // The two home-page accents: the round dot on Main line and the solid Studies block.
@@ -47,8 +47,8 @@
   const NAV = [
     { key: 'main',       href: '#/main',       name: 'Main line',  desc: 'The chapters that form the main thread.' },
     { key: 'dialogues',  href: '#/dialogues',  name: 'Dialogues',  desc: 'One-to-one conversations, kept in their own words.' },
-    { key: 'characters', href: '#/characters', name: 'Characters', desc: 'Four people, their own lines.' },
     { key: 'messages',   href: '#/messages',   name: 'Messages',   desc: 'Texts sent between them.' },
+    { key: 'characters', href: '#/characters', name: 'Characters', desc: 'Four people, their own lines.' },
     { key: 'timeline',   href: '#/timeline',   name: 'Timeline',   desc: 'Everything, by chapter number.' },
     { key: 'gallery',    href: '#/gallery',    name: 'Gallery',    desc: 'Portraits, sketches and photographs.' },
     { key: 'studies',    href: '#/studies',    name: 'Studies',    desc: 'Overviews, terms and readings of the source.' },
@@ -586,6 +586,89 @@
     `<svg width="${size}" height="${size}" viewBox="0 0 28 28" aria-hidden="true"><circle cx="14" cy="14" r="12.5" fill="none" stroke="${stroke}" stroke-width="1.5"/><circle cx="14" cy="14" r="${hole}" fill="none" stroke="${stroke}" stroke-width="1.5"/></svg>`;
 
   const lineArt = (d) => `<svg viewBox="0 0 200 120" class="lineart" aria-hidden="true"><path d="${d}" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>`;
+
+  // Section pictures on the home page. Same language as the icon: dots, lines, rings,
+  // ink on paper, with the block colour and the circle colour as the only accents.
+  // Each viewBox is about the tile's width in pixels, so a 1.6 stroke reads as one fine line everywhere.
+  const INK = 'var(--ink)', BLOCK = 'var(--accent-block, var(--blue))', GOLD = 'var(--accent-circle, var(--red))', HAIR = 'var(--hair)', PAPER = 'var(--paper)', PAPER2 = 'var(--paper-2)';
+  const bubble = (x, y, w, h, tail) => {
+    // A rounded bar with one sharp corner where the tail would be: 'bl' or 'br'.
+    const r = h / 2, s = 5;
+    const bl = tail === 'bl' ? s : r, br = tail === 'br' ? s : r;
+    return `M${x + r} ${y} H${x + w - r} A${r} ${r} 0 0 1 ${x + w} ${y + r} V${y + h - br} A${br} ${br} 0 0 1 ${x + w - br} ${y + h} H${x + bl} A${bl} ${bl} 0 0 1 ${x} ${y + h - bl} V${y + r} A${r} ${r} 0 0 1 ${x + r} ${y} Z`;
+  };
+  const TILE_ART = {
+    // One long thread of chapters: ink dots, gold for a key chapter, blue where the story is now, dashed after.
+    main: () => {
+      const d = 'M236 -12 C 318 96, 104 150, 200 258 S 312 410, 176 512';
+      const pts = [[255,33.1],[225.5,106.3],[174.7,200.2],[208.5,267.7],[254.3,326.3]];
+      return `<svg class="tart" viewBox="0 0 400 500" aria-hidden="true"><g transform="translate(-24 0)">
+        <defs><clipPath id="ta-past"><rect x="0" y="0" width="440" height="402"/></clipPath><clipPath id="ta-next"><rect x="0" y="402" width="440" height="120"/></clipPath></defs>
+        <path d="${d}" fill="none" style="stroke:${INK}" stroke-width="1.6" clip-path="url(#ta-past)"/>
+        <path d="${d}" fill="none" style="stroke:${INK}" stroke-width="1.6" stroke-dasharray="3 7" clip-path="url(#ta-next)"/>
+        ${pts.map(([x, y], i) => i === 2 ? `<circle cx="${x}" cy="${y}" r="8.5" style="fill:${GOLD}"/>` : `<circle cx="${x}" cy="${y}" r="6" style="fill:${INK}"/>`).join('')}
+        <circle cx="273" cy="402.4" r="12" style="fill:${BLOCK}"/>
+      </g></svg>`;
+    },
+    // Two people and what passes between them; the faint outer pair is the echo.
+    dialogues: () => `<svg class="tart" viewBox="0 0 240 240" aria-hidden="true">
+        <g fill="none" stroke-width="1.6">
+          <path d="M60 98 Q120 22 180 98 M180 142 Q120 218 60 142" style="stroke:${HAIR}"/>
+          <path d="M72 110 Q120 60 168 110 M168 130 Q120 180 72 130" style="stroke:${INK}"/>
+        </g>
+        <circle cx="58" cy="120" r="12" style="fill:${INK}"/>
+        <circle cx="182" cy="120" r="12" style="fill:${BLOCK}"/>
+      </svg>`,
+    // A short thread in Evan's colour, since texting is his; his next reply is still being typed.
+    messages: () => {
+      const E = CHARS.Evan.color;
+      return `<svg class="tart" viewBox="0 0 300 400" aria-hidden="true">
+        <path d="${bubble(40, 92, 150, 44, 'bl')}" fill="none" style="stroke:${INK}" stroke-width="1.6"/>
+        <path d="${bubble(110, 154, 150, 44, 'br')}" style="fill:${E}"/>
+        <path d="${bubble(40, 216, 104, 44, 'bl')}" fill="none" style="stroke:${INK}" stroke-width="1.6"/>
+        <path d="${bubble(180, 284, 80, 40, 'br')}" fill="none" style="stroke:${E}" stroke-width="1.6"/>
+        <g style="fill:${E}"><circle cx="204" cy="304" r="3.5"/><circle cx="220" cy="304" r="3.5"/><circle cx="236" cy="304" r="3.5"/></g>
+      </svg>`;
+    },
+    // Zoi, with a small picture she made leaning beside her.
+    gallery: () => `<svg class="tart" viewBox="0 0 280 350" aria-hidden="true"><g transform="translate(0 -26)">
+        <circle cx="108" cy="133" r="27" style="fill:${BLOCK}"/>
+        <path d="M54 300 C 54 210, 72 168, 108 168 S 162 210, 162 300" fill="none" style="stroke:${INK}" stroke-width="1.6"/>
+        <rect x="146" y="176" width="96" height="124" style="fill:${PAPER2};stroke:${INK}" stroke-width="1.6"/>
+        <circle cx="194" cy="224" r="15" style="fill:${GOLD}"/>
+        <path d="M198.5 209.5 Q201 219 208 222 M198.5 209.5 Q194 223 179.5 220.5" fill="none" style="stroke:${INK}" stroke-width="1.6" stroke-linecap="round"/>
+        <path d="M164 300 C 164 266, 176 250, 194 250 S 224 266, 224 300" fill="none" style="stroke:${INK}" stroke-width="1.6"/>
+        <path d="M28 300 H252" fill="none" style="stroke:${INK}" stroke-width="1.6"/></g>
+      </svg>`,
+    // A reading instrument on the blue block. The four points sit where they sit on the app icon:
+    // Zoi in the middle, Leon, Evan and Hudson on the ring.
+    studies: () => {
+      const grid = [];
+      for (let v = 24; v < 240; v += 24) grid.push(`M${v} 0 V240 M0 ${v} H240`);
+      return `<svg class="tart" viewBox="0 0 240 240" aria-hidden="true">
+        <path d="${grid.join(' ')}" fill="none" style="stroke:${PAPER}" stroke-opacity="0.2" stroke-width="1"/>
+        <path d="M120 22 V218 M22 120 H218" fill="none" style="stroke:${PAPER}" stroke-opacity="0.6" stroke-width="1.6"/>
+        <circle cx="120" cy="120" r="72" fill="none" style="stroke:${PAPER}" stroke-width="1.6"/>
+        <g style="fill:${PAPER}">
+          <circle cx="120" cy="120" r="7.5"/>
+          <circle cx="74.3" cy="64.3" r="8"/>
+          <circle cx="58.4" cy="157.3" r="5.6"/>
+          <circle cx="190.2" cy="135.9" r="4.4"/>
+        </g>
+      </svg>`;
+    },
+    // The main line starts at its dot and runs on. One path leaves it, goes down and stops;
+    // the other climbs away in blue and is still going.
+    side: () => `<svg class="tart" viewBox="0 0 480 320" aria-hidden="true">
+        <path d="M48 196 H480" fill="none" style="stroke:${INK}" stroke-width="1.6"/>
+        <circle cx="48" cy="196" r="7" style="fill:${INK}"/>
+        <path d="M128 196 C 196 196, 214 268, 318 272" fill="none" style="stroke:${INK}" stroke-width="1.6"/>
+        <g style="fill:${INK}"><circle cx="196" cy="226" r="4.5"/><circle cx="252" cy="262" r="4.5"/><circle cx="324" cy="272" r="7"/></g>
+        <path d="M224 196 C 292 196, 300 104, 392 96" fill="none" style="stroke:${BLOCK}" stroke-width="1.6"/>
+        <path d="M392 96 C 428 93, 452 80, 480 62" fill="none" style="stroke:${BLOCK}" stroke-width="1.6" stroke-dasharray="3 7"/>
+        <g style="fill:${BLOCK}"><circle cx="292" cy="140" r="4.5"/><circle cx="392" cy="96" r="7"/></g>
+      </svg>`,
+  };
   const ART = [
     'M8 84 C 40 18, 82 20, 100 62 S 158 112, 192 36',
     'M10 60 C 50 10, 90 110, 130 60 S 180 20, 190 70',
@@ -723,6 +806,7 @@
       const count = sectionCount(s.key);
       let art;
       if (cover) art = `<img src="${cover.url}" alt="">`;
+      else if (TILE_ART[s.key]) art = TILE_ART[s.key]();
       else if (L.blue) art = `<span class="tile-ring">${ringSVG(96, 'var(--paper)', 5)}</span>`;
       else art = `${lineArt(ART[i % ART.length] || ART[0])}<span class="ph">[your line drawing]</span>`;
       return `<a class="tile" href="${s.href}" style="--basis:${L.basis}px;--mt:${L.mt}px;--ml:${L.ml || '0px'}">

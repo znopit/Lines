@@ -78,6 +78,7 @@ mark { background: #F1D9A8; color: inherit; }
 .tile-img { position: relative; display: flex; align-items: center; justify-content: center; background: var(--paper-2); color: var(--ink); overflow: visible; }
 .tile-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .tile-img.is-blue { background: var(--accent-block, var(--blue)); }
+.tile-img .tart { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .tile-dot { position: absolute; top: -18px; right: -18px; width: 64px; height: 64px; border-radius: 50%; background: var(--accent-circle, var(--red)); }
 .lineart { width: 60%; height: auto; }
 .ph { position: absolute; left: 12px; bottom: 10px; font-size: 12px; color: var(--muted); }
