@@ -11,7 +11,7 @@
     Evan:   { full: 'Evan J. Mercer',   color: '#5E6B33', object: 'Save files',     objectZh: '存档',     alias: ['evan', '埃文'] },
     Hudson: { full: 'Hudson M. Foster', color: '#7B2236', object: 'Diary',          objectZh: '日记',     alias: ['hudson', '哈德森'] },
   };
-  const APP_VERSION = '2026-11-03 · 13';
+  const APP_VERSION = '2026-11-03 · 14';
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
   const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
   // The two home-page accents: the round dot on Main line and the solid Studies block.
@@ -597,6 +597,94 @@
     const bl = tail === 'bl' ? s : r, br = tail === 'br' ? s : r;
     return `M${x + r} ${y} H${x + w - r} A${r} ${r} 0 0 1 ${x + w} ${y + r} V${y + h - br} A${br} ${br} 0 0 1 ${x + w - br} ${y + h} H${x + bl} A${bl} ${bl} 0 0 1 ${x} ${y + h - bl} V${y + r} A${r} ${r} 0 0 1 ${x + r} ${y} Z`;
   };
+  // Character badges: a round badge with a fine black ring, a big plain head in the character's colour
+  // and a half-length figure with one or two details from the story.
+  let badgeSeq = 0;
+  function badgeSVG(name) {
+    const C = { Leon: CHARS.Leon.color, Zoi: CHARS.Zoi.color, Evan: CHARS.Evan.color, Hudson: CHARS.Hudson.color, gold: '#C9A45C' };
+    const INK = 'var(--ink, #141414)', PAPER = 'var(--paper, #EEEBE3)', NAVY = '#1F2B47';
+    const SH = 'M42 252 C 42 172, 76 142, 120 142 S 198 172, 198 252 Z'; // shoulders
+    const uid = 'bd' + (++badgeSeq);
+    const HX = 120, HY = 88, HR = 43;
+    const headC = (fill) => `<circle cx="${HX}" cy="${HY}" r="${HR}" style="fill:${fill}"/>`;
+    // The same crew neck for Leon and Hudson.
+    const crew = (fill, line) => `<path d="M92 145 C 104 139, 136 139, 148 145 Q120 166 92 145 Z" style="fill:${PAPER};stroke:${PAPER}" stroke-width="3.4" stroke-linejoin="round"/>
+        <path d="M92 145 Q120 166 148 145${line ? ' M86 149 Q120 175 154 149' : ''}" fill="none" style="stroke:${fill}" stroke-width="2.2" stroke-linecap="round"/>`;
+    let back = '', body = '', head = '', front = '';
+
+    if (name === 'Leon') {
+      // Navy T-shirt with the split crew neck he wears in the main line.
+      head = headC(C.gold);
+      body = `<path d="${SH}" style="fill:${NAVY}"/>${crew(PAPER, true)}
+        <path d="M113 162 L120 174 L127 162" fill="none" style="stroke:${PAPER}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    }
+
+    if (name === 'Zoi') {
+      // White blouse with a ruffled collar, wide black braces and the high waistband of the tiered skirt. She smiles a lot.
+      head = headC(C.Zoi) + `<path d="M104 100 H136 A16 16 0 0 1 104 100 Z" style="fill:${PAPER};stroke:${INK}" stroke-width="2.2" stroke-linejoin="round"/>`;
+      // The collar takes the blouse's own shoulder line as its top edge, so only the ruffled hem and the seam are drawn.
+      const hemL = 'M60 150 Q66 158 72 163 A8 8 0 0 0 84 176 A8 8 0 0 0 100 181 A8 8 0 0 0 117 180';
+      const hemR = 'M180 150 Q174 158 164 163 A8 8 0 0 1 152 176 A8 8 0 0 1 136 181 A8 8 0 0 1 117 180';
+      body = `<path d="${SH}" style="fill:${PAPER}"/>
+        <path d="M84 170 L80 252 H104 L106 174 Z M156 170 L160 252 H136 L134 174 Z" style="fill:${INK}"/>
+        <rect x="38" y="218" width="164" height="40" style="fill:${INK}"/>
+        <g clip-path="url(#${uid}s)">
+          <path d="${hemL} Q113 162 118 130 H40 V150 Z ${hemR.replace('M180 150', 'M200 150 L180 150')} Q113 162 118 130 H200 Z" style="fill:${PAPER}"/>
+          <path d="${hemL} M${hemR.slice(1)} M117 180 Q113 162 118 130" fill="none" style="stroke:${INK}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+        </g>
+        <path d="${SH}" fill="none" style="stroke:${INK}" stroke-width="2.4"/>`;
+      // Her two Devon Rex cats peek in at the bottom corners: the cream one with brown points, and the black one.
+      const cat = (x, y, fill, ear, eye, flip) => `<g transform="translate(${x} ${y}) rotate(${flip ? -10 : 10}) scale(${flip ? -1.45 : 1.45} 1.45)">
+          <path d="M-17 4 C -19 -6, -20 -16, -18 -27 C -12 -21, -8 -16, -5 -13 C -2 -14, 2 -14, 5 -13 C 8 -16, 12 -21, 18 -27 C 20 -16, 19 -6, 17 4 C 16 14, 8 18, 0 18 C -8 18, -16 14, -17 4 Z" style="fill:${fill};stroke:${INK}" stroke-width="2"/>
+          <path d="M-15 -8 C -15 -14, -16 -19, -16 -22 M15 -8 C 15 -14, 16 -19, 16 -22" fill="none" style="stroke:${ear}" stroke-width="3" stroke-linecap="round"/>
+          <circle cx="-7" cy="0" r="4.4" style="fill:${eye};stroke:${INK}" stroke-width="1.4"/><circle cx="7" cy="0" r="4.4" style="fill:${eye};stroke:${INK}" stroke-width="1.4"/>
+          <circle cx="-7" cy="0.5" r="1.6" style="fill:${INK}"/><circle cx="7" cy="0.5" r="1.6" style="fill:${INK}"/>
+          <path d="M-1.6 7 L0 8.6 L1.6 7" fill="none" style="stroke:${INK}" stroke-width="1.4" stroke-linejoin="round"/>
+        </g>`;
+      front = cat(22, 132, '#E9D7B8', '#8A5A3C', '#BFD3D6', false) + cat(218, 132, '#1A1714', '#1A1714', '#C9D3A4', true);
+    }
+
+    if (name === 'Evan') {
+      // Square nerd glasses, a navy hoodie under his green jacket, and a small friend of his own floating beside him.
+      head = headC(C.Evan) + `<g fill="none" style="stroke:${INK}" stroke-width="2.8" stroke-linejoin="round">
+          <rect x="91" y="84" width="24" height="17" rx="2"/><rect x="125" y="84" width="24" height="17" rx="2"/><path d="M115 90 H125 M91 89 L80 86 M149 89 L160 86"/></g>`;
+      body = `<path d="${SH}" style="fill:${C.Evan};stroke:${INK}" stroke-width="2.4"/>
+        <g clip-path="url(#${uid}s)"><path d="M96 130 H144 L136 252 H104 Z" style="fill:${NAVY}"/>
+        <path d="M86 150 C 92 172, 148 172, 154 150 L154 130 H86 Z" style="fill:${NAVY}"/></g>
+        <path d="M86 150 C 92 172, 148 172, 154 150" fill="none" style="stroke:${INK}" stroke-width="2"/>
+        <path d="${SH}" fill="none" style="stroke:${INK}" stroke-width="2.4"/>
+        <path d="M96 143 L84 156 L104 214 M144 143 L156 156 L136 214" fill="none" style="stroke:${INK}" stroke-width="2.4" stroke-linejoin="round"/>
+        <path d="M112 166 V196 M128 166 V196" fill="none" style="stroke:${PAPER}" stroke-width="2.2" stroke-linecap="round"/>
+        <circle cx="112" cy="199" r="3" style="fill:${PAPER}"/><circle cx="128" cy="199" r="3" style="fill:${PAPER}"/>`;
+      front = `<g transform="translate(186 92)">
+          <path d="M-7 10 V16 M7 10 V16" fill="none" style="stroke:${INK}" stroke-width="2.4" stroke-linecap="round"/>
+          <rect x="-16" y="-14" width="32" height="26" rx="9" style="fill:${C.Evan};stroke:${INK}" stroke-width="2"/>
+          <circle cx="-6.5" cy="-1" r="4.6" style="fill:${PAPER};stroke:${INK}" stroke-width="1.4"/><circle cx="6.5" cy="-1" r="4.6" style="fill:${PAPER};stroke:${INK}" stroke-width="1.4"/>
+          <circle cx="-6.5" cy="-0.5" r="1.9" style="fill:${INK}"/><circle cx="6.5" cy="-0.5" r="1.9" style="fill:${INK}"/>
+        </g>`;
+    }
+
+    if (name === 'Hudson') {
+      // The mouth with its cupid's bow, and his four tattoos laid round him like a flash sheet. The snake is the big one.
+      head = headC(C.Hudson) + `<path d="M100 103 Q120 128 140 103" fill="none" style="stroke:${PAPER}" stroke-width="3" stroke-linecap="round"/>`;
+      body = `<path d="${SH}" style="fill:${PAPER};stroke:${INK}" stroke-width="2.4"/>${crew(INK, false)}`;
+      const s = `fill="none" style="stroke:${C.Hudson}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"`;
+      back = `
+        <g transform="translate(58 56) rotate(-35)"><path d="M-14 0 H12 M6 -5 L12 0 L6 5 M-14 0 L-18 -4 M-14 0 L-18 4 M-9 0 L-13 -4 M-9 0 L-13 4" ${s}/></g>
+        <g transform="translate(190 64) rotate(8)"><path d="M-10 10 V-2 C -10 -9, -5 -13, 0 -13 C 5 -13, 10 -9, 10 -2 V10 L6.5 7 L3.3 10 L0 7 L-3.3 10 L-6.5 7 Z" ${s}/><circle cx="-3.5" cy="-3" r="1.5" style="fill:${C.Hudson}"/><circle cx="3.5" cy="-3" r="1.5" style="fill:${C.Hudson}"/></g>
+        <path d="M28 182 C 20 164, 38 156, 44 168 C 50 180, 64 176, 60 160 C 56 144, 36 140, 40 122 C 43 110, 52 104, 60 106" fill="none" style="stroke:${C.Hudson}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="61" cy="106" r="3.8" style="fill:${C.Hudson}"/><path d="M64 104 L70 100 L73 101 M70 100 L71 97" fill="none" style="stroke:${C.Hudson}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        <g transform="translate(204 130) rotate(12)"><path d="M-12 -6 H10 V0 H-2 L-4 9 H-10 L-8 0 H-12 Z M-1 0 Q-1 4 2 4" ${s}/></g>`;
+    }
+
+    return `<svg class="badge" viewBox="0 0 240 240" role="img" aria-label="${name}">
+      <defs><clipPath id="${uid}"><circle cx="120" cy="120" r="113"/></clipPath><clipPath id="${uid}s"><path d="${SH}"/></clipPath></defs>
+      <circle cx="120" cy="120" r="113" style="fill:${PAPER}"/>
+      <g clip-path="url(#${uid})">${back}${body}${head}${front}</g>
+      <circle cx="120" cy="120" r="113" fill="none" style="stroke:${INK}" stroke-width="2.6"/>
+    </svg>`;
+  }
+
   const TILE_ART = {
     // One long thread of chapters: ink dots, gold for a key chapter, blue where the story is now, dashed after.
     main: () => {
@@ -865,7 +953,7 @@
 
   function charRow(c, i) {
     return `<a class="crow" href="#/c/${c}">
-      <span class="crow-line" style="background:${CHARS[c].color}"></span>
+      <span class="crow-badge">${badgeSVG(c)}</span>
       <span class="crow-name">${c}<sup>${pad(i + 1)}</sup></span>
       <span class="crow-full"><span>${CHARS[c].full}</span><span aria-hidden="true">↗</span></span>
     </a>`;
@@ -1097,7 +1185,7 @@
     const appears = LIB.docs.filter((d) => ['dialogue', 'message', 'side'].includes(d.type) && d.chars.includes(c));
     return `${topbar()}<main class="wrap page">
       <div class="chero">
-        <span class="crow-line" style="background:${info.color}"></span>
+        <span class="cbadge">${badgeSVG(c)}</span>
         <h1 class="cname">${c}<sup>${pad(ORDER.indexOf(c) + 1)}</sup></h1>
         <p class="lede">${info.full}</p>
         ${cover ? `<figure class="ccover"><img src="${cover.url}" alt=""></figure>` : ''}

@@ -100,6 +100,9 @@ mark { background: #F1D9A8; color: inherit; }
 
 .crow { display: flex; flex-wrap: wrap; align-items: center; column-gap: clamp(16px, 3vw, 40px); row-gap: 8px; padding: 22px 0; border-bottom: 1px solid var(--hair); }
 .crow-line { display: block; width: clamp(40px, 6vw, 88px); height: 6px; }
+.crow-badge { display: block; flex: 0 0 auto; width: clamp(64px, 8vw, 104px); }
+.crow-badge svg, .cbadge svg { display: block; width: 100%; height: auto; }
+.cbadge { display: block; width: clamp(132px, 22vw, 200px); }
 .crow-name { flex: 1 1 240px; font-family: var(--display); font-weight: 600; font-size: clamp(56px, 9vw, 136px); line-height: 0.95; letter-spacing: -0.055em; }
 .crow-name sup { font-size: 14px; margin-left: 8px; }
 .crow-full { flex: 0 1 260px; display: flex; justify-content: space-between; gap: 16px; font-size: 16px; }
