@@ -327,12 +327,22 @@ mark { background: #F1D9A8; color: inherit; }
 .lb-bar .chip.on { background: var(--paper); color: var(--ink); border-color: var(--paper); }
 .lb-bar .chip.danger { color: #E8907F; border-color: rgba(232, 144, 127, 0.5); }
 
-/* ---------- print tone: photos shown as one colour on paper ---------- */
+/* ---------- photo styles ---------- */
 .tone { position: relative; display: block; width: 100%; aspect-ratio: 4 / 5; overflow: hidden; background: var(--paper-2); isolation: isolate; }
 .tone img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.tone.on { background: var(--tone); }
-.tone.on img { filter: grayscale(1) contrast(1.15) brightness(1.04); mix-blend-mode: screen; }
-.tone.on::after { content: ''; position: absolute; inset: 0; background: var(--paper); mix-blend-mode: multiply; pointer-events: none; }
+/* Film: soft faded colour, a little warm, like old prints. */
+.tone.t-film img { filter: saturate(0.42) sepia(0.14) contrast(0.92) brightness(1.04); }
+/* Ink: black and white laid on the paper. */
+.tone.t-ink { background: var(--paper); }
+.tone.t-ink img { filter: grayscale(1) contrast(1.06) brightness(1.03); mix-blend-mode: multiply; }
+/* Print: one colour per person, softened toward the paper. */
+.tone.t-print { background: var(--tone); background: color-mix(in srgb, var(--tone) 62%, var(--paper)); }
+.tone.t-print img { filter: grayscale(1) contrast(1.1) brightness(1.05); mix-blend-mode: screen; }
+.tone.t-print::after { content: ''; position: absolute; inset: 0; background: var(--paper); mix-blend-mode: multiply; pointer-events: none; }
+/* A small mark in each person's colour, so the photo still says whose it is. */
+.tdash { position: absolute; left: 10px; bottom: 10px; display: flex; gap: 4px; }
+.tdash b { display: block; width: 18px; height: 3px; }
+.tone-modes { display: inline-flex; flex-wrap: wrap; gap: 6px; }
 
 /* ---------- chips and sheets ---------- */
 .chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }

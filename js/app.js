@@ -11,7 +11,7 @@
     Evan:   { full: 'Evan J. Mercer',   color: '#5E6B33', object: 'Save files',     objectZh: '存档',     alias: ['evan', '埃文'] },
     Hudson: { full: 'Hudson M. Foster', color: '#7B2236', object: 'Diary',          objectZh: '日记',     alias: ['hudson', '哈德森'] },
   };
-  const APP_VERSION = '2026-11-03 · 17';
+  const APP_VERSION = '2026-11-04 · 18';
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
   const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
   // The two home-page accents: the round dot on Main line and the solid Studies block.
@@ -1252,7 +1252,7 @@
     const f = params.get('f');
     const imgs = LIB.images.filter((i) => !i.cover && (!f || (f === 'sketch' ? i.sketch : i.chars.includes(f))));
     const filters = `<div class="filters"><a href="#/gallery" class="${!f ? 'on' : ''}">All</a>${ORDER.map((c) => `<a href="#/gallery?f=${c}" class="${f === c ? 'on' : ''}">${dashes([c], 'dashes sm')}${c}</a>`).join('')}<a href="#/gallery?f=sketch" class="${f === 'sketch' ? 'on' : ''}">Sketches</a></div>`;
-    const actions = `<div class="gal-actions"><button class="btn sm" data-act="add-images">Add images</button><button class="chip${toneOn() ? ' on' : ''}" data-act="tone" aria-pressed="${toneOn()}">Print tone · ${toneOn() ? 'on' : 'off'}</button></div>`;
+    const actions = `<div class="gal-actions"><button class="btn sm" data-act="add-images">Add images</button><span class="tone-modes" role="group" aria-label="Photo style">${TONES.map(([k, label]) => `<button class="chip${toneMode() === k ? ' on' : ''}" data-act="tone-mode" data-mode="${k}" aria-pressed="${toneMode() === k}">${label}</button>`).join('')}</span></div>`;
     const grid = imgs.length
       ? `<div class="gallery">${imgs.map((im) => `<button class="gimg" data-act="lightbox" data-key="${esc(im.key)}" aria-label="Open ${esc(im.name)}">${toned(im)}<span class="gcap">${esc(stripExt(im.name))}</span></button>`).join('')}</div>`
       : emptyState('No images yet. Add them here, or put them in your Lines folder and import; a folder or file name with a character’s name files it under that character.');
@@ -1333,9 +1333,16 @@
 
   // Photos are shown as one-colour prints in their person's colour; the stored file never changes.
   // Sketches keep their own colours.
-  const toneOn = () => store('lines:tone') !== 'off';
+  // Film: soft, faded colour. Ink: black and white on paper. Print: one colour per person. Off: as taken.
+  const TONES = [['film', 'Film'], ['ink', 'Ink'], ['print', 'Print'], ['off', 'Original']];
+  const toneMode = () => { const v = store('lines:tone'); return TONES.some(([k]) => k === v) ? v : 'film'; };
   const toneColor = (im) => (im.chars[0] && CHARS[im.chars[0]] ? CHARS[im.chars[0]].color : '#141414');
-  const toned = (im, force) => `<span class="tone${(force ?? toneOn()) && !im.sketch ? ' on' : ''}" style="--tone:${toneColor(im)}"><img src="${im.url}" alt="" loading="lazy"></span>`;
+  const toned = (im, original) => {
+    const mode = original || im.sketch ? 'off' : toneMode();
+    const people = im.chars.filter((c) => CHARS[c]);
+    const marks = !im.sketch && people.length && mode !== 'print' ? `<i class="tdash" aria-hidden="true">${people.map((c) => `<b style="background:${CHARS[c].color}"></b>`).join('')}</i>` : '';
+    return `<span class="tone t-${mode}" style="--tone:${toneColor(im)}"><img src="${im.url}" alt="" loading="lazy">${marks}</span>`;
+  };
   const WHO = [['none', 'No one'], ['Leon', 'Leon'], ['Zoi', 'Zoi'], ['Evan', 'Evan'], ['Hudson', 'Hudson'], ['sketch', 'Sketch']];
   const folderFor = (who) => (who === 'none' ? 'Gallery' : who === 'sketch' ? 'Gallery/插画' : 'Gallery/' + who);
   const whoOf = (im) => (im.sketch ? 'sketch' : im.chars[0] || 'none');
@@ -1385,9 +1392,9 @@
     if (!im) return;
     const cur = whoOf(im);
     openOverlay(`<button class="lb-close menubtn" data-act="close">CLOSE ×</button>
-      <figure class="lb-fig">${toned(im, !LB_ORIGINAL && toneOn())}</figure>
+      <figure class="lb-fig">${toned(im, LB_ORIGINAL)}</figure>
       <div class="lb-bar">
-        ${im.sketch ? '' : `<button class="chip" data-act="lb-tone" data-key="${esc(key)}">${LB_ORIGINAL || !toneOn() ? 'Show as print' : 'Show original'}</button>`}
+        ${im.sketch || toneMode() === 'off' ? '' : `<button class="chip" data-act="lb-tone" data-key="${esc(key)}">${LB_ORIGINAL ? 'Show styled' : 'Show original'}</button>`}
         <div class="chips">${WHO.map(([k, label]) => `<button class="chip${cur === k ? ' on' : ''}" data-act="lb-who" data-who="${k}" data-key="${esc(key)}">${label}</button>`).join('')}</div>
         <button class="chip danger" data-act="lb-remove" data-key="${esc(key)}">Remove</button>
       </div>`, 'lightbox');
@@ -1696,7 +1703,7 @@
         break;
       }
       case 'lightbox': LB_ORIGINAL = false; openLightbox(el.dataset.key); break;
-      case 'lb-tone': LB_ORIGINAL = !LB_ORIGINAL; if (!toneOn()) { store('lines:tone', 'on'); LB_ORIGINAL = false; route(); } openLightbox(el.dataset.key); break;
+      case 'lb-tone': LB_ORIGINAL = !LB_ORIGINAL; openLightbox(el.dataset.key); break;
       case 'lb-who': await retagImage(el.dataset.key, el.dataset.who); break;
       case 'lb-remove':
         if (el.dataset.sure) { await deleteRecord(el.dataset.key); closeOverlay(); await loadLibrary(); await route(); toast('Removed from this device.'); }
@@ -1704,7 +1711,7 @@
         break;
       case 'add-images': pickImages(); break;
       case 'add-who': await addPendingImages(el.dataset.who); break;
-      case 'tone': store('lines:tone', toneOn() ? 'off' : 'on'); rerenderInPlace(); break;
+      case 'tone-mode': store('lines:tone', el.dataset.mode); rerenderInPlace(); break;
       case 'bubble': {
         const open = document.querySelector('.bubble-act');
         const same = open && open.previousElementSibling === el;
