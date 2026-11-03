@@ -13,6 +13,13 @@
   };
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
   const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
+  // Each preset keeps the four colors at a similar strength, so no one reads as an accident.
+  const PRESETS = [
+    { name: 'Classic',         colors: { Leon: '#2D4E9C', Zoi: '#D0432E', Evan: '#B98516', Hudson: '#2F7D63' } },
+    { name: 'Ink & vermilion', colors: { Leon: '#1F2A44', Zoi: '#E0482F', Evan: '#A7792A', Hudson: '#4F7A6A' } },
+    { name: 'Klein & coral',   colors: { Leon: '#2440B8', Zoi: '#E0573F', Evan: '#C9962E', Hudson: '#2E8A7A' } },
+    { name: 'Dusk',            colors: { Leon: '#3A4E7A', Zoi: '#C4546A', Evan: '#B07A3A', Hudson: '#4E8073' } },
+  ];
   ORDER.forEach((c) => {
     const v = store('lines:color:' + c);
     if (v && /^#[0-9a-f]{6}$/i.test(v)) CHARS[c].color = v;
@@ -435,25 +442,23 @@
   ];
 
   function bagelSVG() {
-    const seeds = [[170,140,30],[330,150,-20],[362,238,60],[140,240,-40],[192,330,15],[312,338,-50],[292,418,20],[205,414,-30],[384,300,10],[118,302,70],[302,96,45],[196,92,-60],[398,198,0],[104,194,30],[342,384,-15],[160,384,40]];
-    // Leon and Zoi sit on the axis through the hole; Evan and Hudson join Zoi from either side.
-    return `<svg class="bagel" viewBox="-50 0 600 500" role="img" aria-label="Four characters on a ring. Leon and Zoi are joined through the centre; Evan and Hudson each have a line to Zoi.">
-      <defs>
-        <linearGradient id="gZL" gradientUnits="userSpaceOnUse" x1="250" y1="50" x2="250" y2="450"><stop offset="0" stop-color="${CHARS.Zoi.color}"/><stop offset="1" stop-color="${CHARS.Leon.color}"/></linearGradient>
-        <linearGradient id="gZE" gradientUnits="userSpaceOnUse" x1="250" y1="50" x2="77" y2="150"><stop offset="0" stop-color="${CHARS.Zoi.color}"/><stop offset="1" stop-color="${CHARS.Evan.color}"/></linearGradient>
-        <linearGradient id="gZH" gradientUnits="userSpaceOnUse" x1="250" y1="50" x2="423" y2="150"><stop offset="0" stop-color="${CHARS.Zoi.color}"/><stop offset="1" stop-color="${CHARS.Hudson.color}"/></linearGradient>
-      </defs>
+    // Zoi sits in the hole of the bagel. Leon, Evan and Hudson stand on the ring at equal distances,
+    // each joined to her; Leon's line is the strongest.
+    const seeds = [[-65,110,20],[-40,170,-35],[-15,125,60],[5,180,-10],[55,150,40],[80,105,-25],[100,175,70],[125,130,-50],[175,165,15],[200,110,-40],[225,175,30],[250,135,-15]]
+      .map(([a, r, rot]) => [250 + r * Math.cos((a * Math.PI) / 180), 250 + r * Math.sin((a * Math.PI) / 180), rot]);
+    const P = { Leon: [250, 50], Evan: [77, 350], Hudson: [423, 350] };
+    const grad = (c) => `<linearGradient id="g${c}" gradientUnits="userSpaceOnUse" x1="250" y1="250" x2="${P[c][0]}" y2="${P[c][1]}"><stop offset="0" stop-color="${CHARS.Zoi.color}"/><stop offset="1" stop-color="${CHARS[c].color}"/></linearGradient>`;
+    const spoke = (c, w) => `<line x1="250" y1="250" x2="${P[c][0]}" y2="${P[c][1]}" stroke="url(#g${c})" stroke-width="${w}"/>`;
+    return `<svg class="bagel" viewBox="-50 0 600 500" role="img" aria-label="Zoi at the centre of a ring. Leon, Evan and Hudson stand on the ring, each joined to her by a line.">
+      <defs>${grad('Leon')}${grad('Evan')}${grad('Hudson')}</defs>
       <circle cx="250" cy="250" r="200" fill="none" stroke="var(--ink)" stroke-width="1.2"/>
-      <g fill="var(--ink)">${seeds.map(([x, y, r]) => `<ellipse cx="${x}" cy="${y}" rx="4.5" ry="1.8" transform="rotate(${r} ${x} ${y})"/>`).join('')}</g>
-      <line x1="250" y1="50" x2="250" y2="450" stroke="url(#gZL)" stroke-width="3.5"/>
-      <line x1="250" y1="50" x2="77" y2="150" stroke="url(#gZE)" stroke-width="1.5"/>
-      <line x1="250" y1="50" x2="423" y2="150" stroke="url(#gZH)" stroke-width="1.5"/>
-      <circle cx="250" cy="250" r="62" fill="var(--paper)" stroke="var(--ink)" stroke-width="1.2"/>
-      <line x1="250" y1="188" x2="250" y2="312" stroke="url(#gZL)" stroke-width="3.5" stroke-dasharray="2 7" stroke-linecap="round"/>
-      <a href="#/c/Zoi"><circle cx="250" cy="50" r="11" fill="${CHARS.Zoi.color}" stroke="var(--paper)" stroke-width="3"/><text x="250" y="26" text-anchor="middle">Zoi</text></a>
-      <a href="#/c/Leon"><circle cx="250" cy="450" r="11" fill="${CHARS.Leon.color}" stroke="var(--paper)" stroke-width="3"/><text x="250" y="486" text-anchor="middle">Leon</text></a>
-      <a href="#/c/Evan"><circle cx="77" cy="150" r="9" fill="${CHARS.Evan.color}" stroke="var(--paper)" stroke-width="3"/><text x="60" y="140" text-anchor="end">Evan</text></a>
-      <a href="#/c/Hudson"><circle cx="423" cy="150" r="9" fill="${CHARS.Hudson.color}" stroke="var(--paper)" stroke-width="3"/><text x="440" y="140">Hudson</text></a>
+      <g fill="var(--ink)">${seeds.map(([x, y, r]) => `<ellipse cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" rx="4.5" ry="1.8" transform="rotate(${r} ${x.toFixed(1)} ${y.toFixed(1)})"/>`).join('')}</g>
+      ${spoke('Evan', 1.5)}${spoke('Hudson', 1.5)}${spoke('Leon', 3.5)}
+      <circle cx="250" cy="250" r="62" fill="none" stroke="var(--ink)" stroke-width="1.2"/>
+      <a href="#/c/Leon"><circle cx="250" cy="50" r="11" fill="${CHARS.Leon.color}" stroke="var(--paper)" stroke-width="3"/><text x="250" y="26" text-anchor="middle">Leon</text></a>
+      <a href="#/c/Evan"><circle cx="77" cy="350" r="9" fill="${CHARS.Evan.color}" stroke="var(--paper)" stroke-width="3"/><text x="60" y="380" text-anchor="end">Evan</text></a>
+      <a href="#/c/Hudson"><circle cx="423" cy="350" r="9" fill="${CHARS.Hudson.color}" stroke="var(--paper)" stroke-width="3"/><text x="440" y="380">Hudson</text></a>
+      <a href="#/c/Zoi"><circle cx="250" cy="250" r="13" fill="${CHARS.Zoi.color}" stroke="var(--paper)" stroke-width="3"/><text x="250" y="292" text-anchor="middle">Zoi</text></a>
     </svg>`;
   }
 
@@ -864,7 +869,9 @@
       <p class="small">${persisted ? 'Storage is marked as persistent on this device.' : 'Tip: add Lines to your Home Screen so the browser keeps this library safely. Your Lines folder in Files stays the original either way.'}</p>
 
       <section class="block">${sectionHead('COLORS', null)}
-        <p class="note-line">Each person’s color is used for their name on the home page, their lines and their dashes. Tap a swatch to change it.</p>
+        <p class="color-preview"><span style="color:${CHARS.Leon.color}">Leon</span> <span class="x">×</span> <span style="color:${CHARS.Zoi.color}">Zoi</span></p>
+        <div class="presets">${PRESETS.map((p, i) => `<button class="preset${ORDER.every((c) => p.colors[c].toLowerCase() === CHARS[c].color.toLowerCase()) ? ' on' : ''}" data-act="preset" data-i="${i}"><span class="pdots" aria-hidden="true">${ORDER.map((c) => `<i style="background:${p.colors[c]}"></i>`).join('')}</span>${esc(p.name)}</button>`).join('')}</div>
+        <p class="note-line">Start from a set, then fine-tune one person by tapping their swatch. Each color is used for their name, their lines and their dashes.</p>
         <div class="colors">${ORDER.map((c) => `<div class="color-row">
           <label class="swatch" style="background:${CHARS[c].color}"><input type="color" value="${CHARS[c].color}" data-color="${c}" aria-label="${c}’s color"></label>
           <span class="color-name">${c}</span><span class="color-hex">${CHARS[c].color.toUpperCase()}</span>
@@ -1015,18 +1022,27 @@
       case 'color-reset':
         setColor(el.dataset.c, DEFAULT_COLORS[el.dataset.c]);
         break;
+      case 'preset': {
+        const p = PRESETS[+el.dataset.i];
+        if (p) { ORDER.forEach((c) => setColor(c, p.colors[c], false)); rerenderInPlace(); }
+        break;
+      }
       case 'clear-confirm':
         await clearRecords(); await loadLibrary(); route(); toast('The library on this device is empty.');
         break;
     }
   });
 
-  function setColor(c, value) {
+  function rerenderInPlace() {
+    const y = window.scrollY;
+    route().then(() => window.scrollTo(0, y));
+  }
+
+  function setColor(c, value, render = true) {
     if (!CHARS[c] || !/^#[0-9a-f]{6}$/i.test(value)) return;
     CHARS[c].color = value;
     store('lines:color:' + c, value);
-    const y = window.scrollY;
-    route().then(() => window.scrollTo(0, y));
+    if (render) rerenderInPlace();
   }
 
   document.addEventListener('change', (e) => {

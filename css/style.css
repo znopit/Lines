@@ -278,6 +278,13 @@ mark { background: #F1D9A8; color: inherit; }
 .lib-stats div { padding: 16px 0; display: flex; flex-direction: column; }
 .lib-stats b { font-family: var(--display); font-size: 40px; font-weight: 600; letter-spacing: -0.04em; line-height: 1.1; }
 .lib-stats span { font-size: 13px; color: var(--muted); }
+.color-preview { margin: 20px 0 8px; font-family: var(--display); font-weight: 600; font-size: clamp(52px, 12vw, 120px); line-height: 0.95; letter-spacing: -0.055em; }
+.color-preview .x { font-weight: 400; }
+.presets { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.preset { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 14px; border: 1px solid var(--hair); background: transparent; cursor: pointer; font-size: 14px; }
+.preset.on { border-color: var(--ink); }
+.pdots { display: inline-flex; gap: 3px; }
+.pdots i { width: 10px; height: 10px; border-radius: 50%; display: block; }
 .colors { display: flex; flex-direction: column; }
 .color-row { display: flex; align-items: center; gap: 14px; min-height: 60px; border-bottom: 1px solid var(--hair); }
 .swatch { position: relative; width: 44px; height: 44px; border-radius: 50%; overflow: hidden; flex: none; cursor: pointer; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
