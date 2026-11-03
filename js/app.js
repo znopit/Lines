@@ -6,15 +6,15 @@
   // ---------- Fixed data ----------
 
   const CHARS = {
-    Leon:   { full: 'Leon S. Kennedy',  color: '#2D4E9C', object: 'Personal items', objectZh: '个人物品', alias: ['leon', '里昂', '莱昂'] },
-    Zoi:    { full: 'Zoi Z',            color: '#D0432E', object: 'Sketchbook',     objectZh: '速写本',   alias: ['zoi', '雪儿'] },
-    Evan:   { full: 'Evan J. Mercer',   color: '#B98516', object: 'Save files',     objectZh: '存档',     alias: ['evan', '埃文'] },
-    Hudson: { full: 'Hudson M. Foster', color: '#2F7D63', object: 'Diary',          objectZh: '日记',     alias: ['hudson', '哈德森'] },
+    Leon:   { full: 'Leon S. Kennedy',  color: '#6E7279', object: 'Personal items', objectZh: '个人物品', alias: ['leon', '里昂', '莱昂'] },
+    Zoi:    { full: 'Zoi Z',            color: '#1E3BB0', object: 'Sketchbook',     objectZh: '速写本',   alias: ['zoi', '雪儿'] },
+    Evan:   { full: 'Evan J. Mercer',   color: '#5E6B33', object: 'Save files',     objectZh: '存档',     alias: ['evan', '埃文'] },
+    Hudson: { full: 'Hudson M. Foster', color: '#7B2236', object: 'Diary',          objectZh: '日记',     alias: ['hudson', '哈德森'] },
   };
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
   const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
   // The two home-page accents: the round dot on Main line and the solid Studies block.
-  const ACCENT = { circle: '#D0432E', block: '#2D4E9C' };
+  const ACCENT = { circle: '#C9A45C', block: '#1E3BB0' };
   const DEFAULT_ACCENT = { ...ACCENT };
   const SLOTS = [...ORDER, 'circle', 'block'];
   const SLOT_LABEL = { circle: 'Circle', block: 'Block' };
