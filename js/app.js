@@ -11,7 +11,7 @@
     Evan:   { full: 'Evan J. Mercer',   color: '#5E6B33', object: 'Save files',     objectZh: '存档',     alias: ['evan', '埃文'] },
     Hudson: { full: 'Hudson M. Foster', color: '#7B2236', object: 'Diary',          objectZh: '日记',     alias: ['hudson', '哈德森'] },
   };
-  const APP_VERSION = '2026-11-03 · 15';
+  const APP_VERSION = '2026-11-03 · 16';
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
   const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
   // The two home-page accents: the round dot on Main line and the solid Studies block.
@@ -871,6 +871,34 @@
     return out.join('');
   }
 
+  // Record files often open with working notes (时间, 主线状态, 人物状态, 记录说明…) and close with an end state.
+  // Those are folded away as Notes, and ===== rules are dropped, so the reading view shows only the exchange.
+  const RULE_RE = /^[=＝\-—_*·•~]{4,}$/;
+  const META_RE = /^(时间|地点|交流方式|主线状态|人物状态|记录说明|场景|状态|承接|前情)\s*[:：]|记录/;
+  const TAIL_RE = /^(记录结束状态|结束状态|后续状态|本轮状态|预定承接)\s*[:：]?/;
+  function splitNotes(text) {
+    const lines = text.split('\n');
+    const startsBody = (t) => speakerOf(t, true) || /^[（(]/.test(t) || /^[一二三四五六七八九十百]+、/.test(t);
+    let i = 0;
+    const head = [];
+    for (; i < lines.length; i++) {
+      const t = lines[i].trim();
+      if (!t || RULE_RE.test(t)) continue;
+      if (startsBody(t)) break;
+      head.push(t);
+    }
+    const headIsNotes = i < lines.length && head.length && head.some((t) => META_RE.test(t));
+    const from = headIsNotes ? i : 0;
+    let end = lines.length;
+    for (let k = from; k < lines.length; k++) if (TAIL_RE.test(lines[k].trim())) { end = k; break; }
+    const tail = lines.slice(end).map((l) => l.trim()).filter((t) => t && !RULE_RE.test(t));
+    const body = lines.slice(from, end).filter((l) => !RULE_RE.test(l.trim()) && !/^记录结束$/.test(l.trim())).join('\n');
+    return { head: headIsNotes ? head : [], tail, body };
+  }
+  const notesFold = (head, tail, label = 'Notes') => (head.length || tail.length)
+    ? `<details class="notes"><summary>${label}</summary>${head.length ? `<div class="note-sec">${head.map((l) => `<p>${esc(l)}</p>`).join('')}</div>` : ''}${tail.length ? `<div class="note-sec"><span class="note-k">After</span>${tail.map((l) => `<p>${esc(l)}</p>`).join('')}</div>` : ''}</details>`
+    : '';
+
   function formatMessages(text) {
     const out = [];
     let who = null;
@@ -878,7 +906,7 @@
       const t = raw.trim();
       if (!t) continue;
       if (/^[（(][\s\S]*[)）]$/.test(t)) { out.push(`<p class="msg-scene">${esc(t.slice(1, -1))}</p>`); continue; }
-      if (/^([一二三四五六七八九十百]+、|#{1,3}\s)/.test(t) || /^\d{1,2}[:：]\d{2}/.test(t)) { out.push(`<p class="msg-time">${esc(t.replace(/^#{1,3}\s/, ''))}</p>`); continue; }
+      if (/^([一二三四五六七八九十百]+、|#{1,3}\s)/.test(t) || /^\d{1,2}[:：]\d{2}/.test(t) || /^\d{4}[.\-/年]\d{1,2}/.test(t)) { out.push(`<p class="msg-time">${esc(t.replace(/^#{1,3}\s/, ''))}</p>`); continue; }
       const sp = speakerOf(t, true);
       if (sp) {
         who = sp.name;
@@ -1131,9 +1159,11 @@
     CURRENT_TEXT = { title: d.title, text: d.text };
     const img = imageByName(d.image);
     let body;
-    if (d.type === 'message') body = formatMessages(d.text);
+    const sn = ['message', 'dialogue', 'side'].includes(d.type) ? splitNotes(d.text) : { head: [], tail: [], body: d.text };
+    if (d.type === 'message') body = formatMessages(sn.body);
     else if (d.type === 'diary') body = `<div class="diary">${formatBody(d.text, { speakers: false })}</div>`;
-    else body = formatBody(d.text, { generic: ['dialogue', 'side', 'save', 'note'].includes(d.type) });
+    else body = formatBody(sn.body, { generic: ['dialogue', 'side', 'save', 'note'].includes(d.type) });
+    body = notesFold(sn.head, sn.tail) + body;
     const ch = d.ep != null && LIB.chapters.find((c) => c.num === d.ep);
     return `${topbar()}<main class="wrap reader">
       ${readerActions(back, backLabel)}
@@ -1443,7 +1473,7 @@
       const t = raw.trim();
       if (!t) continue;
       if (/^[（(][\s\S]*[)）]$/.test(t)) { items.push({ kind: 'scene', text: t.slice(1, -1) }); continue; }
-      if (/^([一二三四五六七八九十百]+、|#{1,3}\s)/.test(t) || /^\d{1,2}[:：]\d{2}/.test(t)) { items.push({ kind: 'time', text: t.replace(/^#{1,3}\s/, '') }); continue; }
+      if (/^([一二三四五六七八九十百]+、|#{1,3}\s)/.test(t) || /^\d{1,2}[:：]\d{2}/.test(t) || /^\d{4}[.\-/年]\d{1,2}/.test(t)) { items.push({ kind: 'time', text: t.replace(/^#{1,3}\s/, '') }); continue; }
       const sp = speakerOf(t, true);
       if (sp) { who = sp.name; if (sp.rest) items.push({ kind: 'msg', who, text: sp.rest }); continue; }
       items.push({ kind: 'msg', who, text: t });
@@ -1454,7 +1484,7 @@
   function threadSummary(key) {
     const docs = threadDocs(key);
     let count = 0, last = null;
-    docs.forEach((d) => parseMsgs(d.text).forEach((m) => { if (m.kind === 'msg') { count++; last = m; } }));
+    docs.forEach((d) => parseMsgs(splitNotes(d.text).body).forEach((m) => { if (m.kind === 'msg') { count++; last = m; } }));
     const eps = docs.map((d) => d.ep).filter((n) => n != null);
     return { docs, count, last, first: eps.length ? Math.min(...eps) : null, latest: eps.length ? Math.max(...eps) : null };
   }
@@ -1483,7 +1513,8 @@
     const segs = s.docs.map((d, di) => {
       const ch = d.ep != null && LIB.chapters.find((c) => c.num === d.ep);
       let prev = null, n = 0;
-      const items = parseMsgs(d.text).map((m) => {
+      const sn = splitNotes(d.text);
+      const items = parseMsgs(sn.body).map((m) => {
         if (m.kind === 'scene') { prev = null; return `<p class="msg-scene">${esc(m.text)}</p>`; }
         if (m.kind === 'time') { prev = null; return `<p class="msg-time">${esc(m.text)}</p>`; }
         n++;
@@ -1499,7 +1530,7 @@
         const pinned = pins.some((p) => p.mid === mid);
         return `${from}<p class="bubble${me ? ' me' : ''}${pinned ? ' pinned' : ''}${/^[（(][\s\S]*[)）]$/.test(m.text) ? ' aside' : ''}" id="${id}" data-act="bubble" data-mid="${esc(mid)}">${esc(m.text)}</p>`;
       }).join('');
-      return `<div class="seg"><span>${[d.ep != null ? '第' + d.ep + '篇' : '', d.date, d.title !== stripExt(d.path) ? d.title : ''].filter(Boolean).map(esc).join(' · ')}</span>${ch ? `<a href="#/ch/${enc(ch.id)}">Main line ↗</a>` : ''}</div>${items}`;
+      return `<div class="seg"><span>${[d.ep != null ? '第' + d.ep + '篇' : '', d.date, d.title !== stripExt(d.path) ? d.title : ''].filter(Boolean).map(esc).join(' · ')}</span>${ch ? `<a href="#/ch/${enc(ch.id)}">Main line ↗</a>` : ''}</div>${notesFold(sn.head, sn.tail)}${items}`;
     }).join('');
     const pinHTML = pins.length ? `<div class="pins">${pins.map((p) => {
       const id = ids.get(p.mid);

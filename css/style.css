@@ -436,6 +436,8 @@ mark { background: #F1D9A8; color: inherit; }
 .notes .body { padding-top: 0; }
 .notes .body p { font-size: 14px; line-height: 1.6; margin-bottom: 4px; }
 .arc .notes { margin: 0 0 12px; }
+.chat .notes { align-self: stretch; margin: 0 0 10px; background: var(--paper); padding: 0 12px; border: 1px solid var(--hair); }
+.chat .notes summary { padding: 8px 0; font-size: 11px; }
 
 .tag-edit { padding-left: 4px; min-height: 32px; font-size: 13px; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
 .tag-form { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
