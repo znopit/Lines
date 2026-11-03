@@ -345,6 +345,31 @@
     const arc = arcs.get(arcName);
     if (!arc.range && range) arc.range = range;
 
+    const parts = /^【标题】\s*$/m.test(body) ? splitStructured(body, arc) : splitPlain(body);
+    if (!parts.length && meta && meta['篇号']) {
+      parts.push({ num: epFrom(meta['篇号']), note: meta['标题'] || '', lines: body.split('\n'), sections: {} });
+    }
+    for (const p of parts) {
+      let note = p.note.replace(/^[｜|\s]+/, '');
+      let part = null;
+      const pm = note.match(PART_RE);
+      if (pm) { part = cnNum(pm[1]); note = note.slice(pm[0].length).replace(/^[｜|\s]+/, ''); }
+      let tags = note.split(/\s*[｜|]\s*|\s+/).map((t) => t.trim()).filter(Boolean);
+      if (p.structured) tags = note.split(/\s*[｜|]\s*/).map((t) => t.trim()).filter(Boolean);
+      const key = tags.includes('重点');
+      tags = tags.filter((t) => t !== '重点');
+      const ch = {
+        kind: 'chapter', num: p.num, part, note, tags, key,
+        arc: arcName, text: p.lines.join('\n').trim(), path: rec.name,
+        sections: p.sections || {}, summary: (p.sections && p.sections['检索摘要']) || '',
+      };
+      arc.chapters.push(ch);
+      chapters.push(ch);
+    }
+  }
+
+  // Older files: a line such as 第97篇 重点 Leon坦白 starts each chapter.
+  function splitPlain(body) {
     const parts = [];
     let cur = null;
     for (const line of body.split('\n')) {
@@ -352,21 +377,42 @@
       if (m) { cur = { num: +m[1], note: (m[2] || '').trim(), lines: [] }; parts.push(cur); continue; }
       if (cur) cur.lines.push(line);
     }
-    if (!parts.length && meta && meta['篇号']) {
-      parts.push({ num: epFrom(meta['篇号']), note: meta['标题'] || '', lines: body.split('\n') });
+    return parts;
+  }
+
+  // Newer files: each chapter opens with 【标题】, then the heading line, then labelled
+  // sections (【关系线】【检索摘要】【连续性更新】【前置关联】) and finally 【正文】.
+  // Only the line after 【标题】 starts a chapter, so 篇号 quoted inside the notes stay notes.
+  function splitStructured(body, arc) {
+    const lines = body.split('\n');
+    const parts = [];
+    const intro = [];
+    let cur = null;
+    let section = null;
+    for (let i = 0; i < lines.length; i++) {
+      const t = lines[i].trim();
+      if (t === '【标题】') {
+        let j = i + 1;
+        while (j < lines.length && !lines[j].trim()) j++;
+        const m = (lines[j] || '').trim().match(/^第(\d{1,4})篇(.*)$/);
+        if (m) {
+          cur = { num: +m[1], note: m[2].trim(), lines: [], sections: {}, structured: true };
+          parts.push(cur);
+          section = null;
+          i = j;
+          continue;
+        }
+      }
+      if (!cur) { intro.push(lines[i]); continue; }
+      const sm = t.match(/^【([^】]{1,12})】$/);
+      if (sm && section !== '正文') { section = sm[1]; continue; }
+      if (sm && sm[1] === '正文') { section = '正文'; continue; }
+      if (section === '正文') cur.lines.push(lines[i]);
+      else if (section) cur.sections[section] = ((cur.sections[section] || '') + '\n' + lines[i]).trim();
     }
-    for (const p of parts) {
-      let note = p.note;
-      let part = null;
-      const pm = note.match(PART_RE);
-      if (pm) { part = cnNum(pm[1]); note = note.slice(pm[0].length).trim(); }
-      const ch = {
-        kind: 'chapter', num: p.num, part, note, tags: note ? note.split(/\s+/).filter(Boolean) : [],
-        arc: arcName, text: p.lines.join('\n').trim(), path: rec.name,
-      };
-      arc.chapters.push(ch);
-      chapters.push(ch);
-    }
+    const introText = intro.join('\n').trim();
+    if (introText && !arc.intro) arc.intro = introText;
+    return parts;
   }
 
   function makeDoc(rec, type, meta, body) {
@@ -543,11 +589,13 @@
     const isCh = item.kind === 'chapter';
     const href = isCh ? '#/ch/' + enc(item.id) : '#/doc/' + enc(item.id);
     const num = isCh ? pad(item.num, 3) + (item.part ? '.' + item.part : '') : item.ep != null ? pad(item.ep, 3) : '—';
-    const title = isCh ? (opts.chapterTitle ? item.title : excerpt(item.text, 30) || item.title) : item.title;
+    const title = isCh ? (opts.chapterTitle ? item.title : excerpt(item.summary || item.text, 32) || item.title) : item.title;
+    // Chapter tags read as one quiet line; 重点 becomes a gold mark instead of a tag.
     const meta = isCh
-      ? (opts.noNum && item.part ? `<span class="tag strong">${item.label}</span>` : '') + item.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')
+      ? esc([opts.noNum && item.part ? item.label : '', ...item.tags.slice(0, 3)].filter(Boolean).join(' · '))
       : [opts.showType ? TYPE_LABEL[item.type] : '', pairLabel(item.chars), item.date].filter(Boolean).map(esc).join(' · ');
-    return `<a class="row${opts.noNum ? ' no-num' : ''}${isCh && !opts.chapterTitle ? ' ch-row' : ''}" href="${href}"><span class="row-num">${num}</span><span class="row-main"><span class="row-title">${esc(title)}</span>${meta ? `<span class="row-meta">${meta}</span>` : ''}</span>${isCh ? '' : dashes(item.chars)}</a>`;
+    const mark = isCh && item.key ? '<i class="key-mark" title="重点" aria-label="Key chapter"></i>' : '';
+    return `<a class="row${opts.noNum ? ' no-num' : ''}${isCh && !opts.chapterTitle ? ' ch-row' : ''}" href="${href}"><span class="row-num">${num}</span><span class="row-main"><span class="row-title">${mark}${esc(title)}</span>${meta ? `<span class="row-meta${isCh ? ' one-line' : ''}">${meta}</span>` : ''}</span>${isCh ? '' : dashes(item.chars)}</a>`;
   }
 
   // ---------- Body formatting ----------
@@ -693,6 +741,7 @@
       return `<details class="arc" ${a.name === open ? 'open' : ''} id="arc-${enc(a.name)}">
         <summary><span class="arc-title">${esc(a.name)}<sup>${a.range ? a.range.join('–') : ''}</sup></span><span class="arc-count">${a.chapters.length}</span></summary>
         ${ov ? `<a class="arc-ov" href="#/doc/${enc(ov.id)}">Overview ↗</a>` : ''}
+        ${a.intro ? `<details class="notes"><summary>About this arc</summary><div class="body">${formatBody(a.intro, { speakers: false })}</div></details>` : ''}
         <div class="rows">${a.chapters.map((c) => rowHTML(c)).join('')}</div>
       </details>`;
     }).join('');
@@ -747,6 +796,14 @@
 
   let CURRENT_TEXT = { title: '', text: '' };
 
+  // The labelled notes above 【正文】 are mostly for models; keep them folded away while reading.
+  function chapterNotes(ch) {
+    const order = ['检索摘要', '关系线', '连续性更新', '前置关联'];
+    const keys = [...order.filter((k) => ch.sections[k]), ...Object.keys(ch.sections).filter((k) => !order.includes(k))];
+    if (!keys.length) return '';
+    return `<details class="notes"><summary>Chapter notes</summary>${keys.map((k) => `<div class="note-sec"><span class="note-k">${esc(k)}</span>${ch.sections[k].split('\n').filter((l) => l.trim()).map((l) => `<p>${esc(l.trim())}</p>`).join('')}</div>`).join('')}</details>`;
+  }
+
   function viewChapter(id) {
     const ch = LIB.byId.get(id);
     if (!ch) return viewMissing();
@@ -760,8 +817,9 @@
       <div class="progress"><span style="width:${Math.round(pos * 100)}%;background:${CHARS.Leon.color}"></span><span style="width:${Math.round(pos * 100)}%;background:${CHARS.Zoi.color}"></span></div>
       <div class="rhead">
         <h1 class="bignum" aria-label="${esc(ch.title)}">(${ch.label})</h1>
-        <div class="rmeta"><a href="#/main/${enc(ch.arc)}">${esc(ch.arc)}</a>${ch.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>
+        <div class="rmeta"><a href="#/main/${enc(ch.arc)}">${esc(ch.arc)}</a>${ch.key ? '<span class="tag key">重点</span>' : ''}${ch.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>
       </div>
+      ${chapterNotes(ch)}
       <article class="body">${formatBody(ch.text)}</article>
       ${relatedFor(ch.num, ch.id)}
       <nav class="pn">
@@ -998,7 +1056,7 @@
       const i = hay.toLowerCase().indexOf(low);
       if (i >= 0) hits.push({ item, snip: hay.slice(Math.max(0, i - 24), i + q.length + 40).replace(/\s+/g, ' ') });
     };
-    LIB.chapters.forEach((c) => consider(c, c.title + ' ' + c.note + '\n' + c.text));
+    LIB.chapters.forEach((c) => consider(c, c.title + ' ' + c.note + '\n' + Object.values(c.sections).join('\n') + '\n' + c.text));
     LIB.docs.forEach((d) => consider(d, d.title + ' ' + pairLabel(d.chars) + '\n' + d.text));
     out.innerHTML = hits.slice(0, 60).map(({ item, snip }) => {
       const href = item.kind === 'chapter' ? '#/ch/' + enc(item.id) : '#/doc/' + enc(item.id);
