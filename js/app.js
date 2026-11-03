@@ -42,21 +42,26 @@
   }
   applyAccents();
 
-  const SECTIONS = [
-    { key: 'main',      href: '#/main',      name: 'Main line',  desc: 'The chapters that form the main thread.' },
-    { key: 'dialogues', href: '#/dialogues', name: 'Dialogues',  desc: 'One-to-one conversations, kept in their own words.' },
-    { key: 'side',      href: '#/side',      name: 'Side lines', desc: 'Other moments, possibilities and paths.' },
-    { key: 'messages',  href: '#/messages',  name: 'Messages',   desc: 'Texts sent between them.' },
-    { key: 'studies',   href: '#/studies',   name: 'Studies',    desc: 'Overviews, terms and readings of the source.' },
-    { key: 'gallery',   href: '#/gallery',   name: 'Gallery',    desc: 'Portraits, sketches and photographs.' },
-  ];
+  // Menu order. Its numbers are reused on the home tiles, so a number always means the same place.
+  const NAV = [
+    { key: 'main',       href: '#/main',       name: 'Main line',  desc: 'The chapters that form the main thread.' },
+    { key: 'dialogues',  href: '#/dialogues',  name: 'Dialogues',  desc: 'One-to-one conversations, kept in their own words.' },
+    { key: 'characters', href: '#/characters', name: 'Characters', desc: 'Four people, their own lines.' },
+    { key: 'messages',   href: '#/messages',   name: 'Messages',   desc: 'Texts sent between them.' },
+    { key: 'timeline',   href: '#/timeline',   name: 'Timeline',   desc: 'Everything, by chapter number.' },
+    { key: 'gallery',    href: '#/gallery',    name: 'Gallery',    desc: 'Portraits, sketches and photographs.' },
+    { key: 'studies',    href: '#/studies',    name: 'Studies',    desc: 'Overviews, terms and readings of the source.' },
+    { key: 'side',       href: '#/side',       name: 'Side lines', desc: 'Other moments, possibilities and paths.' },
+  ].map((s, i) => ({ ...s, n: String(i + 1).padStart(2, '0') }));
+  // Characters and Timeline have their own sections on the home page, so the tiles leave them out.
+  const SECTIONS = NAV.filter((s) => !['characters', 'timeline'].includes(s.key));
 
   const TILE_LAYOUT = [
-    { basis: 420, ar: '4 / 5', mt: 40,  dot: true },
+    { basis: 420, ar: '4 / 5', mt: 40 },
     { basis: 220, ar: '1 / 1', mt: 180 },
     { basis: 320, ar: '3 / 4', mt: 80 },
     { basis: 280, ar: '4 / 5', mt: 40,  ml: '10%' },
-    { basis: 220, ar: '1 / 1', mt: 220, blue: true },
+    { basis: 220, ar: '1 / 1', mt: 220 },
     { basis: 460, ar: '3 / 2', mt: 120 },
   ];
 
@@ -294,6 +299,25 @@
     return 'other';
   }
 
+  const PART_RE = /^[（(]\s*([一二三四五六七八九十]+|\d{1,2})\s*[)）]\s*/;
+  const CN_DIGITS = '一二三四五六七八九';
+  function cnNum(s) {
+    if (/^\d+$/.test(s)) return +s;
+    const d = (ch) => CN_DIGITS.indexOf(ch) + 1;
+    if (s === '十') return 10;
+    if (s.length === 1) return d(s);
+    if (s[0] === '十') return 10 + d(s[1]);
+    if (s.length === 2 && s[1] === '十') return d(s[0]) * 10;
+    if (s.length === 3) return d(s[0]) * 10 + d(s[2]);
+    return null;
+  }
+  function cnLabel(n) {
+    if (n >= 1 && n <= 9) return CN_DIGITS[n - 1];
+    if (n === 10) return '十';
+    if (n > 10 && n < 20) return '十' + CN_DIGITS[n - 11];
+    return String(n);
+  }
+
   function epFrom(str) {
     const m = String(str || '').match(/(\d{1,4})/);
     return m ? parseInt(m[1], 10) : null;
@@ -332,8 +356,12 @@
       parts.push({ num: epFrom(meta['篇号']), note: meta['标题'] || '', lines: body.split('\n') });
     }
     for (const p of parts) {
+      let note = p.note;
+      let part = null;
+      const pm = note.match(PART_RE);
+      if (pm) { part = cnNum(pm[1]); note = note.slice(pm[0].length).trim(); }
       const ch = {
-        kind: 'chapter', num: p.num, note: p.note, tags: p.note ? p.note.split(/\s+/).filter(Boolean) : [],
+        kind: 'chapter', num: p.num, part, note, tags: note ? note.split(/\s+/).filter(Boolean) : [],
         arc: arcName, text: p.lines.join('\n').trim(), path: rec.name,
       };
       arc.chapters.push(ch);
@@ -393,13 +421,22 @@
 
     const ordered = [];
     arcList.forEach((a) => a.chapters.forEach((c) => ordered.push(c)));
+    // Same-day sections share one chapter number: 第142篇（一）（二）（三） become 142.1, 142.2, 142.3.
+    const total = new Map();
+    ordered.forEach((c) => total.set(c.num, (total.get(c.num) || 0) + 1));
     const seen = new Map();
+    const ids = new Set();
     ordered.forEach((c, i) => {
       const k = seen.get(c.num) || 0;
       seen.set(c.num, k + 1);
-      c.id = 'ch:' + c.num + (k ? '-' + (k + 1) : '');
+      if (c.part == null && total.get(c.num) > 1) c.part = k + 1;
+      c.label = c.num + (c.part ? '.' + c.part : '');
+      let id = 'ch:' + c.label;
+      while (ids.has(id)) id += '+';
+      ids.add(id);
+      c.id = id;
       c.index = i;
-      c.title = '第' + c.num + '篇';
+      c.title = '第' + c.num + '篇' + (c.part ? '（' + cnLabel(c.part) + '）' : '');
     });
 
     docs.sort((a, b) => (a.ep ?? 1e9) - (b.ep ?? 1e9) || a.title.localeCompare(b.title, 'zh'));
@@ -454,7 +491,7 @@
     'M10 60 C 50 10, 90 110, 130 60 S 180 20, 190 70',
     'M10 100 C 30 30, 70 30, 90 70 C 110 110, 150 100, 160 50 S 185 10, 192 30',
     'M14 70 C 40 20, 80 100, 110 60 S 160 30, 188 80',
-    '',
+    'M12 50 C 50 100, 90 10, 120 60 S 170 100, 190 40',
     'M6 70 C 30 40, 60 40, 80 66 S 130 96, 150 60 S 186 30, 196 52',
   ];
 
@@ -505,10 +542,10 @@
   function rowHTML(item, opts = {}) {
     const isCh = item.kind === 'chapter';
     const href = isCh ? '#/ch/' + enc(item.id) : '#/doc/' + enc(item.id);
-    const num = isCh ? pad(item.num, 3) : item.ep != null ? pad(item.ep, 3) : '—';
+    const num = isCh ? pad(item.num, 3) + (item.part ? '.' + item.part : '') : item.ep != null ? pad(item.ep, 3) : '—';
     const title = isCh ? (opts.chapterTitle ? item.title : excerpt(item.text, 30) || item.title) : item.title;
     const meta = isCh
-      ? item.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')
+      ? (opts.noNum && item.part ? `<span class="tag strong">${item.label}</span>` : '') + item.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')
       : [opts.showType ? TYPE_LABEL[item.type] : '', pairLabel(item.chars), item.date].filter(Boolean).map(esc).join(' · ');
     return `<a class="row${opts.noNum ? ' no-num' : ''}${isCh && !opts.chapterTitle ? ' ch-row' : ''}" href="${href}"><span class="row-num">${num}</span><span class="row-main"><span class="row-title">${esc(title)}</span>${meta ? `<span class="row-meta">${meta}</span>` : ''}</span>${isCh ? '' : dashes(item.chars)}</a>`;
   }
@@ -579,16 +616,16 @@
     const last = lastId && LIB.byId.get(lastId);
 
     const tiles = SECTIONS.map((s, i) => {
-      const L = TILE_LAYOUT[i];
+      const L = { ...TILE_LAYOUT[i], blue: s.key === 'studies', dot: s.key === 'main' };
       const cover = coverFor(s.key);
       const count = sectionCount(s.key);
       let art;
       if (cover) art = `<img src="${cover.url}" alt="">`;
       else if (L.blue) art = `<span class="tile-ring">${ringSVG(96, 'var(--paper)', 5)}</span>`;
-      else art = `${lineArt(ART[i])}<span class="ph">[your line drawing]</span>`;
+      else art = `${lineArt(ART[i % ART.length] || ART[0])}<span class="ph">[your line drawing]</span>`;
       return `<a class="tile" href="${s.href}" style="--basis:${L.basis}px;--mt:${L.mt}px;--ml:${L.ml || '0px'}">
         <span class="tile-img${L.blue && !cover ? ' is-blue' : ''}" style="aspect-ratio:${L.ar}">${art}${L.dot ? '<span class="tile-dot"></span>' : ''}</span>
-        <span class="tile-title">${s.name}<sup>${pad(i + 1)}</sup></span>
+        <span class="tile-title">${s.name}<sup>${s.n}</sup></span>
         <span class="tile-desc">${s.desc}${count ? ` <b>${count}</b>` : ''}</span>
       </a>`;
     }).join('');
@@ -701,9 +738,9 @@
   function relatedFor(ep, exceptId) {
     if (ep == null) return '';
     const rel = LIB.docs.filter((d) => d.ep === ep && d.id !== exceptId);
-    const ch = LIB.chapters.find((c) => c.num === ep);
+    const chs = LIB.chapters.filter((c) => c.num === ep && c.id !== exceptId);
     const items = [];
-    if (ch && ch.id !== exceptId) items.push(rowHTML(ch, { chapterTitle: true }));
+    chs.forEach((c) => items.push(rowHTML(c, { chapterTitle: true })));
     rel.forEach((d) => items.push(rowHTML(d, { showType: true })));
     return items.length ? `<section class="related">${sectionHead('AROUND 第' + ep + '篇', items.length)}<div class="rows">${items.join('')}</div></section>` : '';
   }
@@ -722,14 +759,14 @@
       ${readerActions('#/main/' + enc(ch.arc), 'Main line')}
       <div class="progress"><span style="width:${Math.round(pos * 100)}%;background:${CHARS.Leon.color}"></span><span style="width:${Math.round(pos * 100)}%;background:${CHARS.Zoi.color}"></span></div>
       <div class="rhead">
-        <h1 class="bignum" aria-label="${esc(ch.title)}">(${ch.num})</h1>
+        <h1 class="bignum" aria-label="${esc(ch.title)}">(${ch.label})</h1>
         <div class="rmeta"><a href="#/main/${enc(ch.arc)}">${esc(ch.arc)}</a>${ch.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>
       </div>
       <article class="body">${formatBody(ch.text)}</article>
       ${relatedFor(ch.num, ch.id)}
       <nav class="pn">
-        ${prev ? `<a href="#/ch/${enc(prev.id)}"><small>Previous</small><span>← ${prev.num}</span></a>` : '<span></span>'}
-        ${next ? `<a class="r" href="#/ch/${enc(next.id)}"><small>Next</small><span>${next.num} →</span></a>` : '<span></span>'}
+        ${prev ? `<a href="#/ch/${enc(prev.id)}"><small>Previous</small><span>← ${prev.label}</span></a>` : '<span></span>'}
+        ${next ? `<a class="r" href="#/ch/${enc(next.id)}"><small>Next</small><span>${next.label} →</span></a>` : '<span></span>'}
       </nav>
     </main>${footer()}`;
   }
@@ -931,13 +968,9 @@
   }
 
   function openMenu() {
-    const links = [
-      ...SECTIONS.map((s) => [s.href, s.name]),
-      ['#/characters', 'Characters'],
-      ['#/timeline', 'Timeline'],
-    ];
+    const links = NAV.map((x) => [x.href, x.name, x.n]);
     openOverlay(`<div class="top"><a class="logo" href="#/" data-act="close-nav">${ringSVG(26)}<span>Lines</span></a><button class="menubtn" data-act="close">CLOSE ×</button></div>
-      <nav class="menu-list">${links.map(([h, n], i) => `<a href="${h}" data-act="close-nav">${n}<sup>${pad(i + 1)}</sup></a>`).join('')}</nav>
+      <nav class="menu-list">${links.map(([h, n, num]) => `<a href="${h}" data-act="close-nav">${n}<sup>${num}</sup></a>`).join('')}</nav>
       <div class="menu-chars">${ORDER.map((c) => `<a href="#/c/${c}" data-act="close-nav">${dashes([c], 'dashes sm')}${c}</a>`).join('')}</div>
       <div class="menu-foot"><a href="#/library" data-act="close-nav">Library · import &amp; export</a></div>`, 'menu');
   }
@@ -956,10 +989,12 @@
     const q = raw.trim();
     if (!q) { out.innerHTML = ''; return; }
     const low = q.toLowerCase();
-    const n = /^\d{1,4}$/.test(q) ? parseInt(q, 10) : null;
+    const nm = q.match(/^第?(\d{1,4})(?:篇)?(?:[.．·\-－](\d{1,2}))?$/);
+    const n = nm ? parseInt(nm[1], 10) : null;
+    const part = nm && nm[2] ? parseInt(nm[2], 10) : null;
     const hits = [];
     const consider = (item, hay) => {
-      if (n != null && (item.num === n || item.ep === n)) { hits.push({ item, snip: '' }); return; }
+      if (n != null && (item.num === n || item.ep === n) && (part == null || item.part === part)) { hits.push({ item, snip: '' }); return; }
       const i = hay.toLowerCase().indexOf(low);
       if (i >= 0) hits.push({ item, snip: hay.slice(Math.max(0, i - 24), i + q.length + 40).replace(/\s+/g, ' ') });
     };
@@ -967,7 +1002,7 @@
     LIB.docs.forEach((d) => consider(d, d.title + ' ' + pairLabel(d.chars) + '\n' + d.text));
     out.innerHTML = hits.slice(0, 60).map(({ item, snip }) => {
       const href = item.kind === 'chapter' ? '#/ch/' + enc(item.id) : '#/doc/' + enc(item.id);
-      const num = item.kind === 'chapter' ? pad(item.num, 3) : item.ep != null ? pad(item.ep, 3) : '—';
+      const num = item.kind === 'chapter' ? item.label : item.ep != null ? pad(item.ep, 3) : '—';
       let s = esc(snip);
       if (snip) { const k = snip.toLowerCase().indexOf(low); if (k >= 0) s = esc(snip.slice(0, k)) + '<mark>' + esc(snip.slice(k, k + q.length)) + '</mark>' + esc(snip.slice(k + q.length)); }
       return `<a class="row" href="${href}" data-act="close-nav"><span class="row-num">${num}</span><span class="row-main"><span class="row-title">${esc(item.title)}</span><span class="row-meta">${item.kind === 'chapter' ? esc(item.arc) : TYPE_LABEL[item.type]}${s ? ' · …' + s + '…' : ''}</span></span></a>`;
