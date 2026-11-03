@@ -351,6 +351,12 @@ mark { background: #F1D9A8; color: inherit; }
 .notes .body p { font-size: 14px; line-height: 1.6; margin-bottom: 4px; }
 .arc .notes { margin: 0 0 12px; }
 
+.tag-edit { padding-left: 4px; min-height: 32px; font-size: 13px; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
+.tag-form { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.tag-form label { font-size: 12px; color: var(--muted); }
+.tag-form input { width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid var(--ink); background: transparent; font: 16px/1.4 var(--text); color: var(--ink); border-radius: 0; -webkit-appearance: none; }
+.tag-form span { display: flex; align-items: center; gap: 4px; }
+
 /* Hover colours only on devices with a real pointer, so a tap on iPhone does not leave a link tinted. */
 @media (hover: hover) {
   a:hover { color: var(--blue); }

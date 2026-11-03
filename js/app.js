@@ -11,7 +11,7 @@
     Evan:   { full: 'Evan J. Mercer',   color: '#5E6B33', object: 'Save files',     objectZh: '存档',     alias: ['evan', '埃文'] },
     Hudson: { full: 'Hudson M. Foster', color: '#7B2236', object: 'Diary',          objectZh: '日记',     alias: ['hudson', '哈德森'] },
   };
-  const APP_VERSION = '2026-11-03 · 10';
+  const APP_VERSION = '2026-11-03 · 11';
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
   const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
   // The two home-page accents: the round dot on Main line and the solid Studies block.
@@ -77,7 +77,7 @@
   };
 
   const IMG_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', heic: 'image/heic' };
-  const HEAD_RE = /^第(\d{1,4})篇([^，,。：:｜|、；;\s][^\n]{0,59}|\s+[^\n]{1,60})?$/;
+  const HEAD_RE = /^第(\d{1,4})篇([^，,。：:｜|、；;\s][^\n]{0,119}|\s+[^\n]{1,120})?$/;
   const SPEAKER_RE = /^(Leon|Zoi|Evan|Hudson|里昂)\s*[:：]\s*(.*)$/i;
   const GENERIC_SPEAKER_RE = /^([A-Z][A-Za-z.'-]{1,20})\s*[:：]\s*(.*)$/;
 
@@ -354,20 +354,36 @@
       let note = p.note.replace(/^[｜|\s]+/, '');
       let part = null;
       const pm = note.match(PART_RE);
+      const partMarked = !!pm;
       if (pm) { part = cnNum(pm[1]); note = note.slice(pm[0].length).replace(/^[｜|\s]+/, ''); }
-      let tags = note.split(/\s*[｜|]\s*|\s+/).map((t) => t.trim()).filter(Boolean);
-      if (p.structured) tags = note.split(/\s*[｜|]\s*/).map((t) => t.trim()).filter(Boolean);
+      // With ｜ in the heading, split only there; otherwise split on spaces but keep English phrases together.
+      let tags = /[｜|]/.test(note)
+        ? note.split(/\s*[｜|]\s*/).map((t) => t.trim()).filter(Boolean)
+        : joinLatin(note.split(/\s+/).filter(Boolean));
       const isKey = (t) => /^重点篇?$/.test(t);
       const key = tags.some(isKey);
       tags = tags.filter((t) => !isKey(t));
       const ch = {
-        kind: 'chapter', num: p.num, part, note, tags, key,
+        kind: 'chapter', num: p.num, part, partMarked, note, tags, key,
         arc: arcName, text: p.lines.join('\n').trim(), path: rec.name,
+        recKey: rec.key, headLine: p.headLine || '', structured: !!p.structured,
         sections: p.sections || {}, summary: (p.sections && p.sections['检索摘要']) || '',
       };
       arc.chapters.push(ch);
       chapters.push(ch);
     }
+  }
+
+  // "Someone in the Crowd" or "Vivienne Westwood项链" stay one tag; "Crowd Evan视角" splits before the name.
+  function joinLatin(tokens) {
+    const out = [];
+    for (const t of tokens) {
+      const prev = out[out.length - 1];
+      if (prev && /[A-Za-z0-9.'&]$/.test(prev) && /^[A-Za-z]/.test(t) && !/^(Leon|Zoi|Evan|Hudson)(?![A-Za-z])/.test(t)) {
+        out[out.length - 1] = prev + ' ' + t;
+      } else out.push(t);
+    }
+    return out;
   }
 
   // Older files: a line such as 第97篇 重点 Leon坦白 starts each chapter.
@@ -376,7 +392,7 @@
     let cur = null;
     for (const line of body.split('\n')) {
       const m = line.trim().match(HEAD_RE);
-      if (m) { cur = { num: +m[1], note: (m[2] || '').trim(), lines: [] }; parts.push(cur); continue; }
+      if (m) { cur = { num: +m[1], note: (m[2] || '').trim(), lines: [], headLine: line.trim() }; parts.push(cur); continue; }
       if (cur) cur.lines.push(line);
     }
     return parts;
@@ -398,7 +414,7 @@
         while (j < lines.length && !lines[j].trim()) j++;
         const m = (lines[j] || '').trim().match(/^第(\d{1,4})篇(.*)$/);
         if (m) {
-          cur = { num: +m[1], note: m[2].trim(), lines: [], sections: {}, structured: true };
+          cur = { num: +m[1], note: m[2].trim(), lines: [], sections: {}, structured: true, headLine: lines[j].trim() };
           parts.push(cur);
           section = null;
           i = j;
@@ -822,6 +838,34 @@
   }
 
   let CURRENT_TEXT = { title: '', text: '' };
+  let CURRENT_CH = null;
+
+  // Tag edits are written into the heading line of the stored file, so Export carries them back to Files.
+  async function saveTags(ch, raw) {
+    const tags = raw.split(/\s*[｜|]\s*/).map((t) => t.trim()).filter(Boolean);
+    const rec = await idb('readonly', (st) => st.get(ch.recKey));
+    if (!rec) { toast('Could not find the file for this chapter.'); return; }
+    const lines = rec.text.split('\n');
+    let idx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].trim() !== ch.headLine) continue;
+      if (ch.structured) {
+        let k = i - 1;
+        while (k >= 0 && !lines[k].trim()) k--;
+        if (k < 0 || lines[k].trim() !== '【标题】') continue;
+      }
+      idx = i; break;
+    }
+    if (idx < 0) { toast('This heading has changed in the file; re-import and try again.'); return; }
+    const part = ch.partMarked ? '（' + cnLabel(ch.part) + '）' : '';
+    const head = '第' + ch.num + '篇' + part;
+    lines[idx] = !tags.length ? head : ch.structured ? head + '｜' + tags.join('｜') : head + (part ? '' : ' ') + tags.join('｜');
+    rec.text = lines.join('\n');
+    await putRecords([rec]);
+    await loadLibrary();
+    await route();
+    toast('Saved. Export when you want this change in your Files too.', 4000);
+  }
 
   // The labelled notes above 【正文】 are mostly for models; keep them folded away while reading.
   function chapterNotes(ch) {
@@ -839,12 +883,13 @@
     const pos = arc ? (arc.chapters.indexOf(ch) + 1) / arc.chapters.length : 0;
     const prev = LIB.chapters[ch.index - 1], next = LIB.chapters[ch.index + 1];
     CURRENT_TEXT = { title: ch.title + (ch.note ? ' ' + ch.note : ''), text: ch.text };
+    CURRENT_CH = ch;
     return `${topbar()}<main class="wrap reader">
       ${readerActions('#/main/' + enc(ch.arc), 'Main line')}
       <div class="progress"><span style="width:${Math.round(pos * 100)}%;background:${CHARS.Leon.color}"></span><span style="width:${Math.round(pos * 100)}%;background:${CHARS.Zoi.color}"></span></div>
       <div class="rhead">
         <h1 class="bignum" aria-label="${esc(ch.title)}">(${ch.label})</h1>
-        <div class="rmeta">${dashes(ch.chars, 'dashes sm')}<a href="#/main/${enc(ch.arc)}">${esc(ch.arc)}</a>${ch.key ? '<span class="tag key">重点</span>' : ''}${ch.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>
+        <div class="rmeta">${dashes(ch.chars, 'dashes sm')}<a href="#/main/${enc(ch.arc)}">${esc(ch.arc)}</a>${ch.key ? '<span class="tag key">重点</span>' : ''}${ch.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}${ch.headLine ? '<button class="linkbtn tag-edit" data-act="edit-tags">Edit tags</button>' : ''}</div>
       </div>
       ${chapterNotes(ch)}
       <article class="body">${formatBody(ch.text)}</article>
@@ -1161,6 +1206,17 @@
         el.textContent = 'Tap again to remove everything';
         setTimeout(() => { if (el.isConnected) { el.dataset.act = 'clear'; el.textContent = 'Remove everything from this device'; } }, 4000);
         break;
+      case 'edit-tags': {
+        const ch = CURRENT_CH;
+        if (!ch) break;
+        const value = [ch.key ? '重点' : '', ...ch.tags].filter(Boolean).join('｜');
+        const box = el.closest('.rmeta');
+        box.insertAdjacentHTML('afterend', `<form class="tag-form" data-act="save-tags"><label for="tag-input">Tags, separated by ｜ — 重点 adds the gold mark</label><input id="tag-input" type="text" value="${esc(value)}" autocomplete="off"><span><button class="btn sm" type="submit">Save</button><button class="linkbtn" type="button" data-act="cancel-tags">Cancel</button></span></form>`);
+        el.remove();
+        document.getElementById('tag-input').focus();
+        break;
+      }
+      case 'cancel-tags': rerenderInPlace(); break;
       case 'color-reset': {
         const k = el.dataset.c;
         setSlot(k, CHARS[k] ? DEFAULT_COLORS[k] : DEFAULT_ACCENT[k]);
@@ -1223,6 +1279,12 @@
   });
 
   document.addEventListener('submit', (e) => {
+    const tagForm = e.target.closest('[data-act="save-tags"]');
+    if (tagForm) {
+      e.preventDefault();
+      if (CURRENT_CH) saveTags(CURRENT_CH, tagForm.querySelector('input').value);
+      return;
+    }
     const form = e.target.closest('[data-act="jump"]');
     if (!form) return;
     e.preventDefault();
