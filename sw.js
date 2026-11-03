@@ -1,6 +1,6 @@
 /* Lines service worker: keeps the app shell and fonts available offline.
    The library's content is never fetched or cached here; it lives in IndexedDB on the device. */
-const SHELL_CACHE = 'lines-shell-v19';
+const SHELL_CACHE = 'lines-shell-v20';
 const FONT_CACHE = 'lines-fonts';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'js/app.js', 'js/zip.js', 'manifest.webmanifest',
@@ -51,14 +51,18 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  if (url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com') {
+  // Fonts, and the Spot model with its runtime, are fixed versions: keep the first copy so they also work offline.
+  const pinned = url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com' ||
+    (url.hostname === 'cdn.jsdelivr.net' && url.pathname.startsWith('/npm/@mediapipe/')) ||
+    (url.hostname === 'storage.googleapis.com' && url.pathname.startsWith('/mediapipe-models/'));
+  if (pinned) {
     e.respondWith((async () => {
       const cache = await caches.open(FONT_CACHE);
       const hit = await cache.match(req);
       if (hit) return hit;
       try {
         const res = await fetch(req);
-        cache.put(req, res.clone());
+        if (res && (res.ok || res.type === 'opaque')) cache.put(req, res.clone());
         return res;
       } catch (err) {
         return new Response('', { status: 504 });

@@ -11,7 +11,7 @@
     Evan:   { full: 'Evan J. Mercer',   color: '#5E6B33', object: 'Save files',     objectZh: '存档',     alias: ['evan', '埃文'] },
     Hudson: { full: 'Hudson M. Foster', color: '#7B2236', object: 'Diary',          objectZh: '日记',     alias: ['hudson', '哈德森'] },
   };
-  const APP_VERSION = '2026-11-04 · 19';
+  const APP_VERSION = '2026-11-04 · 20';
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
   const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
   // The two home-page accents: the round dot on Main line and the solid Studies block.
@@ -156,16 +156,21 @@
   // ---------- IndexedDB ----------
 
   const dbp = new Promise((resolve, reject) => {
-    const r = indexedDB.open('lines', 1);
-    r.onupgradeneeded = () => { r.result.createObjectStore('files', { keyPath: 'key' }); };
+    // Version 2 adds 'masks': the person outlines Spot uses. They are worked out on this device and never exported.
+    const r = indexedDB.open('lines', 2);
+    r.onupgradeneeded = () => {
+      const db = r.result;
+      if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'key' });
+      if (!db.objectStoreNames.contains('masks')) db.createObjectStore('masks', { keyPath: 'key' });
+    };
     r.onsuccess = () => resolve(r.result);
     r.onerror = () => reject(r.error);
   });
 
-  function idb(mode, op) {
+  function idb(mode, op, storeName = 'files') {
     return dbp.then((db) => new Promise((resolve, reject) => {
-      const t = db.transaction('files', mode);
-      const req = op(t.objectStore('files'));
+      const t = db.transaction(storeName, mode);
+      const req = op(t.objectStore(storeName));
       t.oncomplete = () => resolve(req && 'result' in req ? req.result : undefined);
       t.onerror = () => reject(t.error);
       t.onabort = () => reject(t.error || new Error('Storage was interrupted.'));
@@ -1400,15 +1405,125 @@
   }
 
   // Ink: black and white laid on the paper. Print: one colour per person, softened toward the paper. Off: as taken.
-  const TONES = [['off', 'Original'], ['ink', 'Ink'], ['print', 'Print']];
+  // Spot: the people stay as taken and only the background turns to Print.
+  const TONES = [['off', 'Original'], ['spot', 'Spot'], ['ink', 'Ink'], ['print', 'Print']];
   const toneMode = () => { const v = store('lines:tone'); return TONES.some(([k]) => k === v) ? v : 'off'; };
   const toneColor = (im) => (im.chars[0] && CHARS[im.chars[0]] ? CHARS[im.chars[0]].color : '#141414');
   const toned = (im, original) => {
-    const mode = original || im.kind === 'art' ? 'off' : toneMode();
+    let mode = original || im.kind === 'art' ? 'off' : toneMode();
     const people = im.chars.filter((c) => CHARS[c]);
-    const marks = im.kind !== 'art' && people.length && mode !== 'print' ? `<i class="tdash" aria-hidden="true">${people.map((c) => `<b style="background:${CHARS[c].color}"></b>`).join('')}</i>` : '';
+    const marks = im.kind !== 'art' && people.length && mode !== 'print' && mode !== 'spot' ? `<i class="tdash" aria-hidden="true">${people.map((c) => `<b style="background:${CHARS[c].color}"></b>`).join('')}</i>` : '';
+    if (mode === 'spot') {
+      const mask = MASKS.get(im.key);
+      if (!mask) return `<span class="tone t-print" style="--tone:${toneColor(im)}" data-mask-pending="${esc(im.key)}"><img src="${im.url}" alt="" loading="lazy"></span>`;
+      return `<span class="tone t-spot" style="--tone:${toneColor(im)}"><img class="bg" src="${im.url}" alt="" loading="lazy"><i class="wash"></i><img class="fg" src="${im.url}" alt="" loading="lazy" style="-webkit-mask-image:url(${mask});mask-image:url(${mask})"></span>`;
+    }
     return `<span class="tone t-${mode}" style="--tone:${toneColor(im)}"><img src="${im.url}" alt="" loading="lazy">${marks}</span>`;
   };
+
+  // ---------- Spot: finding the people in a photo, on this device ----------
+  // A small segmentation model (MediaPipe DeepLab v3) runs in the browser. The first time, the phone downloads
+  // the model and its runtime; photos never leave the device. Each outline is worked out once and kept.
+  const MP_BASE = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+  const SEG_MODEL = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/deeplab_v3/float32/1/deeplab_v3.tflite';
+  const PERSON = 15; // DeepLab's label for a person
+  const MASKS = new Map();
+  let SEGMENTER = null, SEG_LOADING = null, MASK_BUSY = false;
+
+  async function loadMasks() {
+    try {
+      const rows = await idb('readonly', (st) => st.getAll(), 'masks');
+      MASKS.forEach((u) => URL.revokeObjectURL(u));
+      MASKS.clear();
+      (rows || []).forEach((r) => MASKS.set(r.key, URL.createObjectURL(r.blob)));
+    } catch (e) { /* masks are a nicety */ }
+  }
+
+  function getSegmenter() {
+    if (SEGMENTER) return Promise.resolve(SEGMENTER);
+    if (!SEG_LOADING) {
+      SEG_LOADING = (async () => {
+        const v = await import(MP_BASE + '/vision_bundle.mjs');
+        const files = await v.FilesetResolver.forVisionTasks(MP_BASE + '/wasm');
+        const make = (delegate) => v.ImageSegmenter.createFromOptions(files, {
+          baseOptions: { modelAssetPath: SEG_MODEL, delegate }, runningMode: 'IMAGE', outputCategoryMask: false, outputConfidenceMasks: true,
+        });
+        try { SEGMENTER = await make('GPU'); } catch (e) { SEGMENTER = await make('CPU'); }
+        return SEGMENTER;
+      })().catch((e) => { SEG_LOADING = null; throw e; });
+    }
+    return SEG_LOADING;
+  }
+
+  async function computeMask(im) {
+    const seg = await getSegmenter();
+    const img = new Image();
+    img.src = im.url;
+    await img.decode();
+    const k = Math.min(1, 1024 / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.max(1, Math.round(img.naturalWidth * k)), h = Math.max(1, Math.round(img.naturalHeight * k));
+    const src = document.createElement('canvas');
+    src.width = w; src.height = h;
+    src.getContext('2d').drawImage(img, 0, 0, w, h);
+    let conf = null, mw = 0, mh = 0;
+    const take = (res) => {
+      const ms = res.confidenceMasks || [];
+      const m = ms.length > PERSON ? ms[PERSON] : ms[0];
+      if (!m) return;
+      mw = m.width; mh = m.height;
+      conf = m.getAsFloat32Array().slice();
+      if (ms.length <= PERSON) for (let i = 0; i < conf.length; i++) conf[i] = 1 - conf[i];
+    };
+    const out = seg.segment(src, take);
+    if (!conf && out) { take(out); if (out.close) out.close(); }
+    if (!conf) throw new Error('No outline came back.');
+    const cv = document.createElement('canvas');
+    cv.width = mw; cv.height = mh;
+    const cx = cv.getContext('2d');
+    const id = cx.createImageData(mw, mh);
+    for (let i = 0; i < conf.length; i++) {
+      const a = Math.max(0, Math.min(1, (conf[i] - 0.3) / 0.4));
+      id.data[i * 4 + 3] = Math.round(a * 255);
+    }
+    cx.putImageData(id, 0, 0);
+    // Soften the edge a little where the browser allows it.
+    const soft = document.createElement('canvas');
+    soft.width = mw; soft.height = mh;
+    const sx = soft.getContext('2d');
+    let use = cv;
+    if ('filter' in sx) { sx.filter = 'blur(1.2px)'; sx.drawImage(cv, 0, 0); use = soft; }
+    const blob = await new Promise((res) => use.toBlob(res, 'image/png'));
+    await idb('readwrite', (st) => st.put({ key: im.key, blob, made: Date.now() }), 'masks');
+    MASKS.set(im.key, URL.createObjectURL(blob));
+  }
+
+  async function processPendingMasks() {
+    if (MASK_BUSY || toneMode() !== 'spot') return;
+    const keys = [...new Set([...document.querySelectorAll('[data-mask-pending]')].map((el) => el.dataset.maskPending))];
+    if (!keys.length) return;
+    MASK_BUSY = true;
+    let done = 0;
+    try {
+      toast(SEGMENTER ? `Finding people… 0/${keys.length}` : 'Getting the outline model ready… (first time only)', 60000);
+      for (const key of keys) {
+        const im = LIB.images.find((i) => i.key === key);
+        if (!im || MASKS.has(key)) continue;
+        await computeMask(im);
+        done++;
+        document.querySelectorAll(`[data-mask-pending="${CSS.escape(key)}"]`).forEach((el) => {
+          const lb = el.closest('.lb-fig');
+          el.outerHTML = toned(im, lb ? LB_ORIGINAL : false);
+        });
+        toast(`Finding people… ${done}/${keys.length}`, 60000);
+      }
+      toast(done ? 'Done. Each photo is only worked out once.' : 'Done.', 2500);
+    } catch (e) {
+      toast('Spot could not start: ' + (e && e.message ? e.message : 'the model did not load') + '. It needs a connection the first time.', 6000);
+    } finally {
+      MASK_BUSY = false;
+    }
+  }
+
   const thumb = (im, cap) => `<button class="gimg" data-act="lightbox" data-key="${esc(im.key)}" aria-label="Open ${esc(im.caption || im.name)}">${toned(im)}${cap ? `<span class="gcap">${esc([im.kind === 'story' ? imgEp(im) : '', im.caption].filter(Boolean).join(' · '))}</span>` : ''}</button>`;
 
   let PENDING_IMAGES = [];
@@ -1487,6 +1602,7 @@
         </form>
         <button class="chip danger" data-act="lb-remove" data-key="${k}">Remove</button>
       </div>`, 'lightbox');
+    setTimeout(processPendingMasks, 50);
   }
 
   // Edits rename the stored file, so the name in Files says the same thing after Export.
@@ -1502,6 +1618,8 @@
     if (name !== rec.name) {
       await deleteRecord(key);
       rec.key = name; rec.name = name;
+      const m = await idb('readonly', (st) => st.get(key), 'masks').catch(() => null);
+      if (m) { await idb('readwrite', (st) => { st.delete(key); st.put({ ...m, key: name }); }, 'masks'); MASKS.set(name, MASKS.get(key)); MASKS.delete(key); }
     }
     rec.folder = 'Gallery';
     await putRecords([rec]);
@@ -1773,6 +1891,7 @@
       default: html = viewMissing();
     }
     $app.innerHTML = html;
+    setTimeout(processPendingMasks, 50);
     if (parts[0] === 'main' && parts[1]) {
       const el = document.getElementById('arc-' + enc(parts[1]));
       if (el) { el.scrollIntoView(); return; }
@@ -1987,6 +2106,7 @@
   (async () => {
     try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch (e) { /* ignore */ }
     try { await loadLibrary(); } catch (e) { toast('Could not open storage: ' + e.message, 6000); }
+    await loadMasks();
     route();
     if ('serviceWorker' in navigator && location.protocol === 'https:') {
       // When a new version takes over, reload once so the new design shows straight away.
