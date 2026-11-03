@@ -11,6 +11,7 @@
     Evan:   { full: 'Evan J. Mercer',   color: '#5E6B33', object: 'Save files',     objectZh: '存档',     alias: ['evan', '埃文'] },
     Hudson: { full: 'Hudson M. Foster', color: '#7B2236', object: 'Diary',          objectZh: '日记',     alias: ['hudson', '哈德森'] },
   };
+  const APP_VERSION = '2026-11-03 · 9';
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
   const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
   // The two home-page accents: the round dot on Main line and the solid Studies block.
@@ -978,6 +979,7 @@
         <button class="btn ghost" data-act="import-replace">Import · replace everything</button>
         <button class="btn ghost" data-act="export">Export all as .zip</button>
       </div>
+      <p class="small">Version ${APP_VERSION}</p>
       <p class="small">${persisted ? 'Storage is marked as persistent on this device.' : 'Tip: add Lines to your Home Screen so the browser keeps this library safely. Your Lines folder in Files stays the original either way.'}</p>
 
       <section class="block">${sectionHead('COLORS', null)}
@@ -1221,7 +1223,18 @@
     try { await loadLibrary(); } catch (e) { toast('Could not open storage: ' + e.message, 6000); }
     route();
     if ('serviceWorker' in navigator && location.protocol === 'https:') {
-      navigator.serviceWorker.register('sw.js').catch(() => {});
+      // When a new version takes over, reload once so the new design shows straight away.
+      const hadController = !!navigator.serviceWorker.controller;
+      let reloaded = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (hadController && !reloaded) { reloaded = true; location.reload(); }
+      });
+      navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+        .then((reg) => {
+          reg.update().catch(() => {});
+          document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+        })
+        .catch(() => {});
     }
   })();
 })();

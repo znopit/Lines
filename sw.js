@@ -1,6 +1,6 @@
 /* Lines service worker: keeps the app shell and fonts available offline.
    The library's content is never fetched or cached here; it lives in IndexedDB on the device. */
-const SHELL_CACHE = 'lines-shell-v8';
+const SHELL_CACHE = 'lines-shell-v9';
 const FONT_CACHE = 'lines-fonts';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'js/app.js', 'js/zip.js', 'manifest.webmanifest',
@@ -8,7 +8,12 @@ const SHELL = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(SHELL_CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // cache: 'reload' skips the browser's HTTP cache, so a new version never installs old files.
+  e.waitUntil(
+    caches.open(SHELL_CACHE)
+      .then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' }))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (e) => {
@@ -19,18 +24,27 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+function withTimeout(promise, ms) {
+  return Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(null), ms))]);
+}
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
 
   if (url.origin === self.location.origin) {
-    // Serve from cache at once, refresh in the background: updates appear on the next open.
+    // Online: always ask the network first, so changes show up on the next open.
+    // Offline or slow: fall back to the saved copy after a few seconds.
     e.respondWith((async () => {
       const cache = await caches.open(SHELL_CACHE);
       const key = req.mode === 'navigate' ? 'index.html' : req;
+      const network = fetch(req, { cache: 'no-cache' })
+        .then((res) => { if (res && res.ok) cache.put(key, res.clone()); return res; })
+        .catch(() => null);
+      const fresh = await withTimeout(network, 3500);
+      if (fresh) return fresh;
       const cached = await cache.match(key, { ignoreSearch: true });
-      const network = fetch(req).then((res) => { if (res && res.ok) cache.put(key, res.clone()); return res; }).catch(() => null);
       if (cached) { e.waitUntil(network); return cached; }
       return (await network) || new Response('Offline', { status: 503 });
     })());
