@@ -11,7 +11,7 @@
     Evan:   { full: 'Evan J. Mercer',   color: '#5E6B33', object: 'Save files',     objectZh: '存档',     alias: ['evan', '埃文'] },
     Hudson: { full: 'Hudson M. Foster', color: '#7B2236', object: 'Diary',          objectZh: '日记',     alias: ['hudson', '哈德森'] },
   };
-  const APP_VERSION = '2026-11-04 · 22';
+  const APP_VERSION = '2026-11-04 · 23';
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
   const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
   // The two home-page accents: the round dot on Main line and the solid Studies block.
@@ -1247,38 +1247,61 @@
     return shell(pageTitle('Characters', 'Four people, their own lines.') + ORDER.map((c, i) => charRow(c, i)).join(''));
   }
 
+  // Each person's own things, in one shared grid of same-size cards; only the cards differ.
+  //   Leon: objects with a museum label.  Zoi: drawings in a paper mount.
+  //   Evan: save slots.                   Hudson: pages of a ruled notebook.
+  const ccard = (inner, label, attrs, cls = '') => `<${attrs.href ? 'a' : 'button'} class="ccard ${cls}" ${attrs.href ? `href="${attrs.href}"` : `type="button" data-act="${attrs.act}"${attrs.key ? ` data-key="${esc(attrs.key)}"` : ''}${attrs.c ? ` data-c="${attrs.c}"` : ''}`}>
+      <span class="ccard-face">${inner}</span>${label ? `<span class="ccard-label">${label}</span>` : ''}</${attrs.href ? 'a' : 'button'}>`;
+  const clabel = (k, t) => `${k ? `<span class="ccard-k">${esc(k)}</span>` : ''}<span class="ccard-t">${esc(t)}</span>`;
+  const addCard = (c, text) => ccard('<span class="plus" aria-hidden="true"></span>', `<span class="ccard-t muted">${text}</span>`, { act: 'char-add', c }, 'add');
+
   function objectSection(c) {
+    let head, cards = [], note = '';
     if (c === 'Leon') {
       const items = docsOf('item').filter((d) => d.chars.includes('Leon'));
       const pics = LIB.images.filter((im) => im.kind === 'story' && im.chars.includes('Leon') && !items.some((d) => imageByName(d.image) === im));
-      const picCards = pics.map((im) => `<button class="item" data-act="lightbox" data-key="${esc(im.key)}"><span class="item-img"><img src="${im.url}" alt=""></span><span class="item-name">${esc(im.caption || 'Untitled')}</span>${im.ep != null ? `<span class="item-ep">${imgEp(im)}</span>` : ''}</button>`).join('');
-      const cards = picCards + items.map((d) => {
+      pics.forEach((im) => cards.push(ccard(`<img src="${im.url}" alt="" loading="lazy">`, clabel(imgEp(im), im.caption || 'Untitled'), { act: 'lightbox', key: im.key }, 'leon')));
+      items.forEach((d) => {
         const img = imageByName(d.image);
-        return `<a class="item" href="#/doc/${enc(d.id)}"><span class="item-img">${img ? `<img src="${img.url}" alt="">` : ringSVG(40, 'currentColor', 5)}</span><span class="item-name">${esc(d.title)}</span>${d.ep != null ? `<span class="item-ep">${epName(d)}</span>` : ''}</a>`;
-      }).join('');
-      return `<section class="block">${sectionHead('PERSONAL ITEMS', items.length + pics.length)}<p class="note-line">The things he kept.</p>
-        ${items.length + pics.length ? `<div class="items">${cards}</div>` : `<div class="items">${[0, 1, 2].map(() => `<span class="item ph-item"><span class="item-img">${lineArt(ART[3])}</span><span class="item-name">[an object he keeps]</span></span>`).join('')}</div>`}</section>`;
-    }
-    if (c === 'Zoi') {
+        cards.push(ccard(img ? `<img src="${img.url}" alt="" loading="lazy">` : ringSVG(40, 'currentColor', 5), clabel(epName(d), d.title), { href: '#/doc/' + enc(d.id) }, 'leon'));
+      });
+      head = sectionHead('PERSONAL ITEMS', items.length + pics.length);
+      note = 'The things he kept.';
+      cards.push(addCard('Leon', 'Add a picture'));
+    } else if (c === 'Zoi') {
       const imgs = LIB.images.filter((i) => i.kind === 'art' && !i.cover);
       const docs = docsOf('sketch');
-      const grid = imgs.map((im) => `<button class="sk" data-act="lightbox" data-key="${esc(im.key)}" aria-label="Open ${esc(im.caption || im.name)}"><img src="${im.url}" alt="" loading="lazy"></button>`).join('');
-      return `<section class="block">${sectionHead('SKETCHBOOK', imgs.length + docs.length)}
-        ${imgs.length ? `<div class="sketches">${grid}</div>` : `<div class="sketches">${[0, 1, 2, 3].map((k) => `<span class="sk ph-sk">${lineArt(ART[k])}<span class="ph">[your line drawing]</span></span>`).join('')}</div>`}
-        ${docs.length ? `<div class="rows">${docs.map((d) => rowHTML(d)).join('')}</div>` : ''}</section>`;
-    }
-    if (c === 'Evan') {
+      imgs.forEach((im) => cards.push(ccard(`<img src="${im.url}" alt="" loading="lazy">`, im.caption ? clabel('', im.caption) : '', { act: 'lightbox', key: im.key }, 'zoi')));
+      docs.forEach((d) => cards.push(ccard(`<span class="sk-text">${esc(excerpt(d.text, 60))}</span>`, clabel(epName(d), d.title), { href: '#/doc/' + enc(d.id) }, 'zoi')));
+      head = sectionHead('SKETCHBOOK', imgs.length + docs.length);
+      note = 'Her drawings.';
+      cards.push(addCard('Zoi', 'Add a drawing'));
+    } else if (c === 'Evan') {
       const saves = docsOf('save').filter((d) => d.chars.includes('Evan'));
-      const slots = saves.map((d, k) => `<a class="slot" href="#/doc/${enc(d.id)}"><span class="slot-top"><b>SAVE ${pad(k + 1)}</b><span>${epName(d)}</span></span><span class="slot-title">${esc(d.title)}</span><span class="slot-ex">${esc(excerpt(d.text, 60))}</span></a>`).join('');
-      const empties = [0, 1, 2].slice(0, Math.max(0, 3 - saves.length)).map((k) => `<span class="slot empty-slot"><span class="slot-top"><b>SAVE ${pad(saves.length + k + 1)}</b></span><span class="slot-title">— EMPTY —</span></span>`).join('');
-      return `<section class="block">${sectionHead('SAVE FILES', saves.length)}
-        <div class="saves"><div class="saves-head"><span>LOAD GAME</span><span>Lines · Evan J. Mercer</span></div><div class="slots">${slots}${empties}</div></div>
-        <p class="note-line"><a href="#/messages/evan">Messages with Zoi →</a></p></section>`;
+      saves.forEach((d, k) => cards.push(ccard(`<span class="slot-k">SAVE ${pad(k + 1)}</span><span class="slot-t">${esc(d.title)}</span><span class="slot-x">${esc(excerpt(d.text, 70))}</span><span class="slot-ep">${esc(epName(d))}</span>`, '', { href: '#/doc/' + enc(d.id) }, 'evan')));
+      for (let k = saves.length; k < Math.max(2, saves.length); k++) cards.push(`<span class="ccard evan blank"><span class="ccard-face"><span class="slot-k">SAVE ${pad(k + 1)}</span><span class="slot-t">— EMPTY —</span></span></span>`);
+      head = sectionHead('SAVE FILES', saves.length);
+      note = `Load game. <a href="#/messages/evan">Messages with Zoi →</a>`;
+      cards.push(addCard('Evan', 'New save'));
+    } else {
+      const entries = docsOf('diary').filter((d) => d.chars.includes('Hudson'));
+      entries.forEach((d) => cards.push(ccard(`<span class="page-date">${esc(d.date || epName(d))}</span><span class="page-text">${esc(excerpt(d.text, 120))}</span>`, clabel(d.date ? epName(d) : '', d.title), { href: '#/doc/' + enc(d.id) }, 'hudson')));
+      if (!entries.length) cards.push(`<span class="ccard hudson blank"><span class="ccard-face"><span class="page-text">the first page of his diary</span></span></span>`);
+      head = sectionHead('DIARY', entries.length);
+      note = 'He writes most nights.';
+      cards.push(addCard('Hudson', 'New page'));
     }
-    const entries = docsOf('diary').filter((d) => d.chars.includes('Hudson'));
-    return `<section class="block">${sectionHead('DIARY', entries.length)}
-      ${entries.length ? `<div class="diary-list">${entries.map((d) => `<a class="dentry" href="#/doc/${enc(d.id)}"><span class="dentry-top">${epName(d)}${d.date ? ' · ' + esc(d.date) : ''}</span><span class="dentry-title">${esc(d.title)}</span><span class="dentry-ex">${esc(excerpt(d.text, 90))}</span></a>`).join('')}</div>`
-        : `<div class="diary-list"><span class="dentry ph-entry"><span class="dentry-title">[the first page of his diary]</span></span></div>`}</section>`;
+    return `<section class="block">${head}${note ? `<p class="note-line">${note}</p>` : ''}<div class="cgrid">${cards.join('')}</div></section>`;
+  }
+
+  function charAdd(c) {
+    if (c === 'Leon') return pickImages({ kind: 'story', people: ['Leon'] });
+    if (c === 'Zoi') return pickImages({ kind: 'art', people: [] });
+    const t = c === 'Evan' ? '存档' : '日记';
+    openOverlay(`<div class="sheet"><p class="sheet-k">${c}</p><h2>${c === 'Evan' ? 'A new save' : 'A new page'}</h2>
+      <p class="note-line">${c === 'Evan' ? 'Save files' : 'Diary pages'} are text files. Start one in Notes or Pages with these lines, save it as .txt into your Lines folder, then import.</p>
+      <pre class="code">类型：${t}\n人物：${c}\n篇号：163\n标题：…${c === 'Hudson' ? '\n日期：2026.08.27' : ''}\n---\n正文……</pre>
+      <span class="sheet-btns"><button class="btn sm" data-act="close">Got it</button></span></div>`, 'sheet-ov');
   }
 
   function viewCharacter(c) {
@@ -1471,7 +1494,7 @@
   let PENDING = { kind: 'portrait', people: [] };
   let LB_ORIGINAL = false;
 
-  function pickImages() {
+  function pickImages(preset) {
     const inp = document.createElement('input');
     inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true; inp.hidden = true;
     document.body.appendChild(inp);
@@ -1479,7 +1502,7 @@
       PENDING_IMAGES = [...inp.files];
       inp.remove();
       if (!PENDING_IMAGES.length) return;
-      PENDING = { kind: 'portrait', people: [] };
+      PENDING = preset ? { kind: preset.kind, people: [...preset.people] } : { kind: 'portrait', people: [] };
       addSheet();
     });
     inp.click();
@@ -1873,6 +1896,7 @@
         else { el.dataset.sure = '1'; el.textContent = 'Tap again to remove'; }
         break;
       case 'add-images': pickImages(); break;
+      case 'char-add': charAdd(el.dataset.c); break;
       case 'totop': window.scrollTo({ top: 0, behavior: 'smooth' }); break;
       case 'gselect': SELECTING = !SELECTING; SELECTED.clear(); rerenderInPlace(); break;
       case 'gsel': {

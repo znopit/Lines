@@ -511,3 +511,44 @@ button.item { padding: 0; border: 0; background: none; text-align: left; font: i
 body:has(.selbar) .totop { bottom: calc(78px + env(safe-area-inset-bottom)); }
 body.locked .totop { display: none; }
 .body .sub + .chat.inline { border-top: 0; margin-top: 0; }
+
+/* ---------- character things: one grid, four kinds of card ---------- */
+.cgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 14px; margin-top: 20px; }
+@media (min-width: 720px) { .cgrid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 1040px) { .cgrid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.ccard { display: flex; flex-direction: column; gap: 8px; padding: 0; border: 0; background: none; text-align: left; font: inherit; color: inherit; cursor: pointer; min-width: 0; }
+.ccard-face { position: relative; display: flex; flex-direction: column; aspect-ratio: 4 / 5; overflow: hidden; background: var(--paper-2); }
+.ccard-face img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ccard-label { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ccard-k { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.ccard-t { font-size: 15px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ccard-t.muted { font-weight: 400; color: var(--muted); }
+/* the add card */
+.ccard.add .ccard-face { background: transparent; border: 1px dashed var(--faint); align-items: center; justify-content: center; }
+.plus { position: relative; width: 28px; height: 28px; }
+.plus::before, .plus::after { content: ''; position: absolute; left: 50%; top: 50%; background: var(--ink); transform: translate(-50%, -50%); }
+.plus::before { width: 28px; height: 1.5px; }
+.plus::after { width: 1.5px; height: 28px; }
+/* Leon: an object on a plinth, with a museum label */
+.ccard.leon .ccard-face { display: grid; place-items: center; color: var(--ink); }
+.ccard.leon .ccard-label { border-top: 1px solid var(--ink); padding-top: 6px; }
+/* Zoi: a drawing in a paper mount */
+.ccard.zoi .ccard-face { background: var(--paper); border: 1px solid var(--hair); padding: 9px; }
+.ccard.zoi .ccard-face img { box-shadow: 0 0 0 1px rgba(20, 20, 20, 0.06); }
+.sk-text { font-family: 'Caveat', var(--text); font-size: 20px; line-height: 1.3; color: var(--muted); }
+/* Evan: save slots */
+.ccard.evan .ccard-face { background: #1C1C1A; color: var(--paper); padding: 14px; gap: 8px; border: 1px solid #3A3A38; }
+.slot-k { font-family: var(--display); font-size: 11px; font-weight: 600; letter-spacing: 0.14em; color: #B5B0A5; }
+.slot-t { font-size: 16px; font-weight: 500; line-height: 1.3; }
+.slot-x { font-size: 12px; line-height: 1.5; color: #B5B0A5; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; }
+.slot-ep { margin-top: auto; font-size: 11px; letter-spacing: 0.06em; color: var(--evan, #B5B0A5); color: #8E9A5C; }
+.ccard.evan.blank .slot-t { color: #77736B; font-family: var(--display); letter-spacing: 0.12em; font-size: 13px; }
+/* Hudson: pages of a ruled notebook */
+.ccard.hudson .ccard-face { background-color: #F7F2E6; background-image: linear-gradient(90deg, transparent 22px, rgba(123, 34, 54, 0.35) 22px, rgba(123, 34, 54, 0.35) 23px, transparent 23px), repeating-linear-gradient(transparent 0 25px, rgba(45, 78, 156, 0.16) 25px 26px); padding: 12px 10px 10px 30px; gap: 4px; box-shadow: 0 1px 0 var(--hair), 2px 2px 0 rgba(20, 20, 20, 0.05); }
+.page-date { font-size: 11px; letter-spacing: 0.06em; color: var(--muted); line-height: 18px; }
+.page-text { font-family: 'Caveat', var(--text); font-size: 17px; line-height: 26px; color: #2A2A2A; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; }
+.ccard.hudson.blank .page-text { color: var(--faint); }
+@media (hover: hover) {
+  .ccard:hover .ccard-t { color: var(--blue); }
+  .ccard.add:hover .ccard-face { border-color: var(--ink); }
+}
