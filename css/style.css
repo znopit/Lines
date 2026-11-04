@@ -188,7 +188,7 @@ mark { background: #F1D9A8; color: inherit; }
 .body { padding-top: 28px; }
 .body p { margin: 0 0 1.05em; font-size: 17px; line-height: 1.85; }
 .body .scene, .body .scene p { font-size: 15px; color: var(--muted); line-height: 1.75; }
-.body div.scene { margin: 0 0 1.1em; }
+.body div.scene { margin: 1.6em 0; padding-left: 14px; border-left: 2px solid var(--who, var(--hair)); }
 .body div.scene p { margin: 0 0 0.6em; }
 .body div.scene p:last-child { margin-bottom: 0; }
 .body .sub { margin: 2em 0 1em; padding-bottom: 8px; border-bottom: 1px solid var(--ink); font-size: 16px; font-weight: 500; }

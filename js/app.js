@@ -11,7 +11,7 @@
     Evan:   { full: 'Evan J. Mercer',   color: '#5E6B33', object: 'Save files',     objectZh: '存档',     alias: ['evan', '埃文'] },
     Hudson: { full: 'Hudson M. Foster', color: '#7B2236', object: 'Diary',          objectZh: '日记',     alias: ['hudson', '哈德森'] },
   };
-  const APP_VERSION = '2026-11-04 · 23';
+  const APP_VERSION = '2026-11-04 · 24';
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
   const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
   // The two home-page accents: the round dot on Main line and the solid Studies block.
@@ -907,6 +907,18 @@
     return out.join('');
   }
 
+  // A scene note belongs to whoever it is about: the first person named in it gets the line beside it,
+  // so Evan's thoughts after one of Zoi's lines read as his, not hers.
+  function sceneColor(lines) {
+    const t = lines.join(' ');
+    let best = null, at = Infinity;
+    for (const c of ORDER) for (const a of [c, ...CHARS[c].alias]) {
+      const i = t.toLowerCase().indexOf(a.toLowerCase());
+      if (i >= 0 && i < at) { at = i; best = c; }
+    }
+    return best ? ` style="--who:${CHARS[best].color}"` : '';
+  }
+
   function formatBody(text, opts = {}) {
     const out = [];
     let block = null, chat = null;
@@ -923,7 +935,7 @@
     for (const tk of scanLines(text)) {
       if (tk.scene) {
         if (chat) { chat.push(tk); continue; }
-        flush(); out.push(`<div class="scene">${tk.scene.map((x) => `<p>${esc(x)}</p>`).join('')}</div>`); continue;
+        flush(); out.push(`<div class="scene"${sceneColor(tk.scene)}>${tk.scene.map((x) => `<p>${esc(x)}</p>`).join('')}</div>`); continue;
       }
       const t = tk.t;
       if (HEADING_RE.test(t) || /^【[^】]*】$/.test(t)) {
