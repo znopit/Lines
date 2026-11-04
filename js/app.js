@@ -11,7 +11,7 @@
     Evan:   { full: 'Evan J. Mercer',   color: '#5E6B33', object: 'Save files',     objectZh: '存档',     alias: ['evan', '埃文'] },
     Hudson: { full: 'Hudson M. Foster', color: '#7B2236', object: 'Diary',          objectZh: '日记',     alias: ['hudson', '哈德森'] },
   };
-  const APP_VERSION = '2026-11-04 · 25';
+  const APP_VERSION = '2026-11-05 · 26';
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
   const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
   // The two home-page accents: the round dot on Main line and the solid Studies block.
@@ -918,16 +918,24 @@
   }
 
   // Message bubbles: Zoi on the right, everyone else on the left; in a group, names above.
+  // In a thread, a short stage note sits centred; a longer one (a scene, someone's thoughts) becomes a narrow
+  // card across the thread with the line of whoever it is about.
+  function msgScene(lines, lastMan) {
+    const long = lines.length > 1 || lines.join('').length > 36;
+    if (!long) return `<p class="msg-scene">${lines.map(esc).join('<br>')}</p>`;
+    return `<div class="msg-note"${sceneColor(lines, lastMan)}>${lines.map((x) => `<p>${esc(x)}</p>`).join('')}</div>`;
+  }
+
   function chatBubbles(tokens, group) {
     const out = [];
-    let who = null, prev = null;
+    let who = null, prev = null, lastMan = null;
     for (const tk of tokens) {
-      if (tk.scene) { prev = null; out.push(`<p class="msg-scene">${tk.scene.map(esc).join('<br>')}</p>`); continue; }
+      if (tk.scene) { prev = null; out.push(msgScene(tk.scene, lastMan)); continue; }
       if (tk.pics) { out.push(picBubble(tk.pics, who === 'Zoi')); continue; }
       const t = tk.t;
       if (HEADING_RE.test(t) || /^\d{1,2}[:：]\d{2}/.test(t) || /^\d{4}[.\-/年]\d{1,2}/.test(t)) { prev = null; out.push(`<p class="msg-time">${esc(t.replace(/^#{1,3}\s/, ''))}</p>`); continue; }
       const sp = speakerOf(t, true);
-      if (sp) { who = sp.name; if (!sp.rest) continue; }
+      if (sp) { who = sp.name; if (CHARS[who] && who !== 'Zoi') lastMan = who; if (!sp.rest) continue; }
       const text = sp ? sp.rest : t;
       if (group && who && who !== 'Zoi' && who !== prev) {
         const nick = groupNick(who);
@@ -1724,12 +1732,38 @@
     return items;
   }
 
+  // The parts of a 1v1 (or side line) headed …｜短信, so the phone shows those texts too
+  // while the file itself stays one continuous scene.
+  function textingParts(d) {
+    const parts = [];
+    let cur = null;
+    for (const raw of splitNotes(d.text).body.split('\n')) {
+      const t = raw.trim();
+      if (HEADING_RE.test(t)) {
+        cur = TEXTING_RE.test(t) ? { heading: t.replace(/^#{1,3}\s/, ''), lines: [] } : null;
+        if (cur) parts.push(cur);
+        continue;
+      }
+      if (cur) cur.lines.push(raw);
+    }
+    return parts.map((x, i) => ({ heading: x.heading, text: x.lines.join('\n'), i }));
+  }
+
+  function threadSegments(key) {
+    const segs = [];
+    threadDocs(key).forEach((d) => { const sn = splitNotes(d.text); segs.push({ d, text: sn.body, head: sn.head, tail: sn.tail, from: null, mk: d.path }); });
+    docsOf(['dialogue', 'side']).filter((d) => threadKeyOf(d) === key).forEach((d) => textingParts(d).forEach((p) =>
+      segs.push({ d, text: p.text, head: [], tail: [], from: p.heading, mk: d.path + '§' + p.i })));
+    segs.sort((a, b) => (a.d.ep ?? 1e9) - (b.d.ep ?? 1e9) || (a.d.part || 0) - (b.d.part || 0) || (a.from ? 1 : 0) - (b.from ? 1 : 0));
+    return segs;
+  }
+
   function threadSummary(key) {
-    const docs = threadDocs(key);
+    const segs = threadSegments(key);
     let count = 0, last = null;
-    docs.forEach((d) => parseMsgs(splitNotes(d.text).body).forEach((m) => { if (m.kind === 'msg') { count++; last = m; } }));
-    const numbered = docs.filter((d) => d.ep != null);
-    return { docs, count, last, first: numbered[0] || null, latest: numbered[numbered.length - 1] || null };
+    segs.forEach((g) => parseMsgs(g.text).forEach((m) => { if (m.kind === 'msg') { count++; last = m; } }));
+    const numbered = segs.map((g) => g.d).filter((d) => d.ep != null);
+    return { segs, docs: segs.map((g) => g.d), count, last, first: numbered[0] || null, latest: numbered[numbered.length - 1] || null };
   }
 
   function viewMessages() {
@@ -1753,17 +1787,17 @@
     const pins = SETTINGS.pins[key] || [];
     const isGroup = key === 'group';
     const ids = new Map();
-    const segs = s.docs.map((d, di) => {
+    const segs = s.segs.map((g, di) => {
+      const d = g.d;
       const ch = chapterFor(d);
-      let prev = null, n = 0;
-      const sn = splitNotes(d.text);
+      let prev = null, n = 0, lastMan = null;
       PIC_CTX = { ep: d.ep, used: new Set() };
-      const items = parseMsgs(sn.body).map((m) => {
-        if (m.kind === 'scene') { prev = null; return `<p class="msg-scene">${m.text.split('\n').map(esc).join('<br>')}</p>`; }
+      const items = parseMsgs(g.text).map((m) => {
+        if (m.kind === 'scene') { prev = null; return msgScene(m.text.split('\n'), lastMan); }
         if (m.kind === 'time') { prev = null; return `<p class="msg-time">${esc(m.text)}</p>`; }
         if (m.kind === 'pics') return picBubble(m.names, m.who === 'Zoi');
         n++;
-        const mid = d.path + '#' + n, id = `m${di}-${n}`;
+        const mid = g.mk + '#' + n, id = `m${di}-${n}`;
         ids.set(mid, id);
         const me = m.who === 'Zoi';
         let from = '';
@@ -1772,10 +1806,13 @@
           from = `<p class="msg-from" style="color:${charColor(m.who)}"><b>${esc(nick || m.who)}</b>${nick ? `<span>${esc(m.who)}</span>` : ''}</p>`;
         }
         prev = m.who;
+        if (CHARS[m.who] && m.who !== 'Zoi') lastMan = m.who;
         const pinned = pins.some((p) => p.mid === mid);
         return `${from}<p class="bubble${me ? ' me' : ''}${pinned ? ' pinned' : ''}${/^[（(][\s\S]*[)）]$/.test(m.text) ? ' aside' : ''}" id="${id}" data-act="bubble" data-mid="${esc(mid)}">${esc(m.text)}</p>`;
       }).join('');
-      return `<div class="seg"><span>${[epName(d), d.date, d.title !== stripExt(d.path) ? d.title : ''].filter(Boolean).map(esc).join(' · ')}</span>${ch ? `<a href="#/ch/${enc(ch.id)}">Main line ↗</a>` : ''}</div>${notesFold(sn.head, sn.tail)}${(() => { const pics = storyImagesFor(d.ep, d.part, 'message').filter((im) => !PIC_CTX.used.has(im.key)); return pics.length ? `<div class="strip chat-pics">${pics.map((im) => thumb(im)).join('')}</div>` : ''; })()}${items}`;
+      const label = [epName(d), d.date, d.title !== stripExt(d.path) ? d.title : ''].filter(Boolean).map(esc).join(' · ');
+      const link = g.from ? `<a href="#/doc/${enc(d.id)}">1v1 ↗</a>` : ch ? `<a href="#/ch/${enc(ch.id)}">Main line ↗</a>` : '';
+      return `<div class="seg"><span>${label}</span>${link}</div>${notesFold(g.head, g.tail)}${g.from ? '' : (() => { const pics = storyImagesFor(d.ep, d.part, 'message').filter((im) => !PIC_CTX.used.has(im.key)); return pics.length ? `<div class="strip chat-pics">${pics.map((im) => thumb(im)).join('')}</div>` : ''; })()}${items}`;
     }).join('');
     const pinHTML = pins.length ? `<div class="pins">${pins.map((p) => {
       const id = ids.get(p.mid);

@@ -566,3 +566,8 @@ body.locked .totop { display: none; }
 .pic-msg img { width: 100%; display: block; border-radius: 16px; aspect-ratio: 3 / 4; object-fit: cover; }
 .pic-msg.many img { border-radius: 10px; aspect-ratio: 1 / 1; }
 .pic-msg:not(.many) img { max-height: 320px; }
+
+/* a longer scene or someone's thoughts inside a thread */
+.msg-note { align-self: stretch; margin: 10px 4px; padding: 10px 12px 10px 14px; background: var(--paper); border-left: 2px solid var(--who, var(--hair)); }
+.msg-note p { margin: 0 0 6px !important; font-size: 14px !important; line-height: 1.7 !important; color: var(--muted); }
+.msg-note p:last-child { margin-bottom: 0 !important; }
