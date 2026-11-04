@@ -11,7 +11,7 @@
     Evan:   { full: 'Evan J. Mercer',   color: '#5E6B33', object: 'Save files',     objectZh: '存档',     alias: ['evan', '埃文'] },
     Hudson: { full: 'Hudson M. Foster', color: '#7B2236', object: 'Diary',          objectZh: '日记',     alias: ['hudson', '哈德森'] },
   };
-  const APP_VERSION = '2026-11-04 · 21';
+  const APP_VERSION = '2026-11-04 · 22';
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
   const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
   // The two home-page accents: the round dot on Main line and the solid Studies block.
@@ -857,24 +857,87 @@
 
   const speakerLabel = (name) => `<span class="spk"><i style="background:${charColor(name)}"></i>${esc(name)}</span>`;
 
+  // Lines grouped for reading. A scene note in （…） can run over several lines; everything up to the closing
+  // bracket is one scene, so a long aside never ends up inside the last speaker's lines.
+  const OPEN_RE = /^[（(]/, CLOSE_RE = /[)）]$/;
+  const HEADING_RE = /^([一二三四五六七八九十百]+、|#{1,3}\s)/;
+  const TEXTING_RE = /短信|texts?\b|messages?\b|微信|imessage|聊天/i;
+  function scanLines(text) {
+    const lines = text.split('\n').map((l) => l.trim());
+    const out = [];
+    for (let i = 0; i < lines.length; i++) {
+      const t = lines[i];
+      if (!t) continue;
+      if (OPEN_RE.test(t) && !CLOSE_RE.test(t)) {
+        let j = i + 1;
+        while (j < lines.length && j - i < 40 && !CLOSE_RE.test(lines[j])) j++;
+        if (j < lines.length && CLOSE_RE.test(lines[j])) {
+          const parts = lines.slice(i, j + 1).filter(Boolean);
+          parts[0] = parts[0].slice(1);
+          parts[parts.length - 1] = parts[parts.length - 1].slice(0, -1);
+          out.push({ scene: parts.map((x) => x.trim()).filter(Boolean) });
+          i = j;
+          continue;
+        }
+      }
+      if (OPEN_RE.test(t) && CLOSE_RE.test(t)) { out.push({ scene: [t.slice(1, -1)] }); continue; }
+      out.push({ t });
+    }
+    return out;
+  }
+
+  // Message bubbles: Zoi on the right, everyone else on the left; in a group, names above.
+  function chatBubbles(tokens, group) {
+    const out = [];
+    let who = null, prev = null;
+    for (const tk of tokens) {
+      if (tk.scene) { prev = null; out.push(`<p class="msg-scene">${tk.scene.map(esc).join('<br>')}</p>`); continue; }
+      const t = tk.t;
+      if (HEADING_RE.test(t) || /^\d{1,2}[:：]\d{2}/.test(t) || /^\d{4}[.\-/年]\d{1,2}/.test(t)) { prev = null; out.push(`<p class="msg-time">${esc(t.replace(/^#{1,3}\s/, ''))}</p>`); continue; }
+      const sp = speakerOf(t, true);
+      if (sp) { who = sp.name; if (!sp.rest) continue; }
+      const text = sp ? sp.rest : t;
+      if (group && who && who !== 'Zoi' && who !== prev) {
+        const nick = groupNick(who);
+        out.push(`<p class="msg-from" style="color:${charColor(who)}"><b>${esc(nick || who)}</b>${nick ? `<span>${esc(who)}</span>` : ''}</p>`);
+      }
+      prev = who;
+      out.push(`<p class="bubble${who === 'Zoi' ? ' me' : ''}${/^[（(][\s\S]*[)）]$/.test(text) ? ' aside' : ''}">${esc(text)}</p>`);
+    }
+    return out.join('');
+  }
+
   function formatBody(text, opts = {}) {
     const out = [];
-    let block = null;
+    let block = null, chat = null;
     const flush = () => {
       if (block) { out.push(`<div class="turn">${speakerLabel(block.name)}${block.paras.map((p) => `<p>${esc(p)}</p>`).join('')}</div>`); block = null; }
     };
-    for (const raw of text.split('\n')) {
-      const t = raw.trim();
-      if (!t) continue;
-      if (/^[（(][\s\S]*[)）]$/.test(t)) { flush(); out.push(`<p class="scene">${esc(t.slice(1, -1))}</p>`); continue; }
-      if (/^([一二三四五六七八九十百]+、|#{1,3}\s)/.test(t) || /^【[^】]*】$/.test(t)) {
-        flush(); out.push(`<h3 class="sub">${esc(t.replace(/^#{1,3}\s/, ''))}</h3>`); continue;
+    // In a 1v1 file, a part headed 一、08:18｜短信 is texting, so it is shown as bubbles on the chat paper.
+    const endChat = () => {
+      if (chat) {
+        out.push(`<div class="chat inline" style='${chatBg(opts.chatKey || 'leon')}'>${chatBubbles(chat, opts.chatKey === 'group')}</div>`);
+        chat = null;
       }
+    };
+    for (const tk of scanLines(text)) {
+      if (tk.scene) {
+        if (chat) { chat.push(tk); continue; }
+        flush(); out.push(`<div class="scene">${tk.scene.map((x) => `<p>${esc(x)}</p>`).join('')}</div>`); continue;
+      }
+      const t = tk.t;
+      if (HEADING_RE.test(t) || /^【[^】]*】$/.test(t)) {
+        flush(); endChat();
+        out.push(`<h3 class="sub">${esc(t.replace(/^#{1,3}\s/, ''))}</h3>`);
+        if (opts.chatKey && TEXTING_RE.test(t)) chat = [];
+        continue;
+      }
+      if (chat) { chat.push(tk); continue; }
       const sp = opts.speakers === false ? null : speakerOf(t, opts.generic);
       if (sp) { flush(); block = { name: sp.name, paras: sp.rest ? [sp.rest] : [] }; continue; }
       if (block) block.paras.push(t); else out.push(`<p>${esc(t)}</p>`);
     }
-    flush();
+    flush(); endChat();
     return out.join('');
   }
 
@@ -906,24 +969,8 @@
     ? `<details class="notes"><summary>${label}</summary>${head.length ? `<div class="note-sec">${head.map((l) => `<p>${esc(l)}</p>`).join('')}</div>` : ''}${tail.length ? `<div class="note-sec"><span class="note-k">After</span>${tail.map((l) => `<p>${esc(l)}</p>`).join('')}</div>` : ''}</details>`
     : '';
 
-  function formatMessages(text) {
-    const out = [];
-    let who = null;
-    for (const raw of text.split('\n')) {
-      const t = raw.trim();
-      if (!t) continue;
-      if (/^[（(][\s\S]*[)）]$/.test(t)) { out.push(`<p class="msg-scene">${esc(t.slice(1, -1))}</p>`); continue; }
-      if (/^([一二三四五六七八九十百]+、|#{1,3}\s)/.test(t) || /^\d{1,2}[:：]\d{2}/.test(t) || /^\d{4}[.\-/年]\d{1,2}/.test(t)) { out.push(`<p class="msg-time">${esc(t.replace(/^#{1,3}\s/, ''))}</p>`); continue; }
-      const sp = speakerOf(t, true);
-      if (sp) {
-        who = sp.name;
-        out.push(`<p class="msg-name ${who === 'Zoi' ? 'me' : ''}">${speakerLabel(who)}</p>`);
-        if (sp.rest) out.push(`<p class="bubble ${who === 'Zoi' ? 'me' : ''}">${esc(sp.rest)}</p>`);
-        continue;
-      }
-      out.push(`<p class="bubble ${who === 'Zoi' ? 'me' : ''}">${esc(t)}</p>`);
-    }
-    return `<div class="thread">${out.join('')}</div>`;
+  function formatMessages(text, group) {
+    return `<div class="thread">${chatBubbles(scanLines(text), group)}</div>`;
   }
 
   function excerpt(text, n = 80) {
@@ -1168,9 +1215,9 @@
     const img = imageByName(d.image);
     let body;
     const sn = ['message', 'dialogue', 'side'].includes(d.type) ? splitNotes(d.text) : { head: [], tail: [], body: d.text };
-    if (d.type === 'message') body = formatMessages(sn.body);
+    if (d.type === 'message') body = `<div class="chat inline" style='${chatBg(threadKeyOf(d))}'>${chatBubbles(scanLines(sn.body), threadKeyOf(d) === 'group')}</div>`;
     else if (d.type === 'diary') body = `<div class="diary">${formatBody(d.text, { speakers: false })}</div>`;
-    else body = formatBody(sn.body, { generic: ['dialogue', 'side', 'save', 'note'].includes(d.type) });
+    else body = formatBody(sn.body, { generic: ['dialogue', 'side', 'save', 'note'].includes(d.type), chatKey: ['dialogue', 'side'].includes(d.type) ? threadKeyOf(d) : null });
     body = notesFold(sn.head, sn.tail) + body;
     const ch = chapterFor(d);
     return `${topbar()}<main class="wrap reader">
@@ -1226,7 +1273,7 @@
       const empties = [0, 1, 2].slice(0, Math.max(0, 3 - saves.length)).map((k) => `<span class="slot empty-slot"><span class="slot-top"><b>SAVE ${pad(saves.length + k + 1)}</b></span><span class="slot-title">— EMPTY —</span></span>`).join('');
       return `<section class="block">${sectionHead('SAVE FILES', saves.length)}
         <div class="saves"><div class="saves-head"><span>LOAD GAME</span><span>Lines · Evan J. Mercer</span></div><div class="slots">${slots}${empties}</div></div>
-        <p class="note-line"><a href="#/messages?f=${enc('Zoi × Evan')}">Messages with Zoi →</a></p></section>`;
+        <p class="note-line"><a href="#/messages/evan">Messages with Zoi →</a></p></section>`;
     }
     const entries = docsOf('diary').filter((d) => d.chars.includes('Hudson'));
     return `<section class="block">${sectionHead('DIARY', entries.length)}
@@ -1587,10 +1634,9 @@
   function parseMsgs(text) {
     const items = [];
     let who = null;
-    for (const raw of text.split('\n')) {
-      const t = raw.trim();
-      if (!t) continue;
-      if (/^[（(][\s\S]*[)）]$/.test(t)) { items.push({ kind: 'scene', text: t.slice(1, -1) }); continue; }
+    for (const tk of scanLines(text)) {
+      if (tk.scene) { items.push({ kind: 'scene', text: tk.scene.join('\n') }); continue; }
+      const t = tk.t;
       if (/^([一二三四五六七八九十百]+、|#{1,3}\s)/.test(t) || /^\d{1,2}[:：]\d{2}/.test(t) || /^\d{4}[.\-/年]\d{1,2}/.test(t)) { items.push({ kind: 'time', text: t.replace(/^#{1,3}\s/, '') }); continue; }
       const sp = speakerOf(t, true);
       if (sp) { who = sp.name; if (sp.rest) items.push({ kind: 'msg', who, text: sp.rest }); continue; }
@@ -1633,7 +1679,7 @@
       let prev = null, n = 0;
       const sn = splitNotes(d.text);
       const items = parseMsgs(sn.body).map((m) => {
-        if (m.kind === 'scene') { prev = null; return `<p class="msg-scene">${esc(m.text)}</p>`; }
+        if (m.kind === 'scene') { prev = null; return `<p class="msg-scene">${m.text.split('\n').map(esc).join('<br>')}</p>`; }
         if (m.kind === 'time') { prev = null; return `<p class="msg-time">${esc(m.text)}</p>`; }
         n++;
         const mid = d.path + '#' + n, id = `m${di}-${n}`;
@@ -1827,6 +1873,7 @@
         else { el.dataset.sure = '1'; el.textContent = 'Tap again to remove'; }
         break;
       case 'add-images': pickImages(); break;
+      case 'totop': window.scrollTo({ top: 0, behavior: 'smooth' }); break;
       case 'gselect': SELECTING = !SELECTING; SELECTED.clear(); rerenderInPlace(); break;
       case 'gsel': {
         const key = el.dataset.key;
@@ -1920,6 +1967,18 @@
     if (c) c.textContent = `${SELECTED.size} selected`;
     if (d) { d.disabled = !SELECTED.size; delete d.dataset.sure; d.textContent = 'Delete'; }
   }
+
+  // Back to top, once the page has been scrolled a good way down.
+  const $top = document.createElement('button');
+  $top.className = 'totop'; $top.type = 'button'; $top.dataset.act = 'totop'; $top.setAttribute('aria-label', 'Back to top');
+  $top.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  document.body.appendChild($top);
+  let topTick = false;
+  window.addEventListener('scroll', () => {
+    if (topTick) return;
+    topTick = true;
+    requestAnimationFrame(() => { $top.classList.toggle('show', window.scrollY > window.innerHeight * 1.2); topTick = false; });
+  }, { passive: true });
 
   function rerenderInPlace() {
     const y = window.scrollY;

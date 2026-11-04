@@ -187,7 +187,10 @@ mark { background: #F1D9A8; color: inherit; }
 
 .body { padding-top: 28px; }
 .body p { margin: 0 0 1.05em; font-size: 17px; line-height: 1.85; }
-.body .scene { font-size: 15px; color: var(--muted); line-height: 1.75; }
+.body .scene, .body .scene p { font-size: 15px; color: var(--muted); line-height: 1.75; }
+.body div.scene { margin: 0 0 1.1em; }
+.body div.scene p { margin: 0 0 0.6em; }
+.body div.scene p:last-child { margin-bottom: 0; }
 .body .sub { margin: 2em 0 1em; padding-bottom: 8px; border-bottom: 1px solid var(--ink); font-size: 16px; font-weight: 500; }
 .turn { margin: 0 0 1.4em; }
 .turn p { margin-bottom: 0.4em; }
@@ -495,3 +498,16 @@ button.item { padding: 0; border: 0; background: none; text-align: left; font: i
 .selcount { flex: 1; font-size: 14px; }
 .selbar .linkbtn { padding: 0; min-height: 36px; }
 .selbar .chip[disabled] { opacity: 0.35; }
+
+/* texting inside a 1v1 or a single text file */
+.chat.inline { margin: 14px 0 26px; }
+.body .chat.inline p { margin: 0; }
+.body .chat.inline .bubble { font-size: 16px; line-height: 1.5; }
+.body .chat.inline .msg-scene, .body .chat.inline .msg-time { font-size: 13px; line-height: 1.6; }
+
+/* back to top */
+.totop { position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: calc(18px + env(safe-area-inset-bottom)); z-index: 30; width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--ink); background: var(--paper); color: var(--ink); display: grid; place-items: center; cursor: pointer; opacity: 0; transform: translateY(8px); pointer-events: none; transition: opacity 0.2s, transform 0.2s; }
+.totop.show { opacity: 1; transform: none; pointer-events: auto; }
+body:has(.selbar) .totop { bottom: calc(78px + env(safe-area-inset-bottom)); }
+body.locked .totop { display: none; }
+.body .sub + .chat.inline { border-top: 0; margin-top: 0; }
