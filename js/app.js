@@ -11,7 +11,7 @@
     Evan:   { full: 'Evan J. Mercer',   color: '#5E6B33', object: 'Save files',     objectZh: '存档',     alias: ['evan', '埃文'] },
     Hudson: { full: 'Hudson M. Foster', color: '#7B2236', object: 'Diary',          objectZh: '日记',     alias: ['hudson', '哈德森'] },
   };
-  const APP_VERSION = '2026-11-04 · 24';
+  const APP_VERSION = '2026-11-04 · 25';
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
   const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
   // The two home-page accents: the round dot on Main line and the solid Studies block.
@@ -862,6 +862,35 @@
   const OPEN_RE = /^[（(]/, CLOSE_RE = /[)）]$/;
   const HEADING_RE = /^([一二三四五六七八九十百]+、|#{1,3}\s)/;
   const TEXTING_RE = /短信|texts?\b|messages?\b|微信|imessage|聊天/i;
+  // 【图：童年照片】 on a line of its own puts that picture from the Gallery right there.
+  const PIC_RE = /^[【\[]\s*(?:图|图片|照片|photos?|pics?|img)\s*[:：]\s*(.+?)\s*[】\]]$/i;
+  let PIC_CTX = { ep: null, used: new Set() };
+  function findPic(name) {
+    const n = name.toLowerCase();
+    const pool = LIB.images.filter((im) => !im.cover);
+    const near = (im) => (PIC_CTX.ep != null && im.ep === PIC_CTX.ep ? 0 : 1);
+    const hits = (test) => pool.filter(test).sort((a, b) => near(a) - near(b));
+    return hits((im) => (im.caption || '').toLowerCase() === n)[0] ||
+      hits((im) => (im.caption || '').toLowerCase().includes(n))[0] ||
+      hits((im) => stripExt(im.name).toLowerCase().includes(n))[0] || null;
+  }
+  function picsFor(names) {
+    const found = names.map(findPic).filter(Boolean);
+    found.forEach((im) => PIC_CTX.used.add(im.key));
+    return found;
+  }
+  // In prose: small instant photos laid on the page. In texting: a photo message on the sender's side.
+  function polaroids(names) {
+    const ims = picsFor(names);
+    if (!ims.length) return `<p class="scene">［${esc(names.join('｜'))}］</p>`;
+    return `<div class="pols">${ims.map((im, i) => `<button class="pol" style="--tilt:${[-2.2, 1.6, -0.8, 2.4][i % 4]}deg" data-act="lightbox" data-key="${esc(im.key)}"><img src="${im.url}" alt="" loading="lazy">${im.caption ? `<span>${esc(im.caption)}</span>` : ''}</button>`).join('')}</div>`;
+  }
+  function picBubble(names, me) {
+    const ims = picsFor(names);
+    if (!ims.length) return `<p class="bubble${me ? ' me' : ''} aside">［${esc(names.join('｜'))}］</p>`;
+    return `<div class="pic-msg${me ? ' me' : ''}${ims.length > 1 ? ' many' : ''}">${ims.map((im) => `<button data-act="lightbox" data-key="${esc(im.key)}" aria-label="${esc(im.caption || 'Photo')}"><img src="${im.url}" alt="" loading="lazy"></button>`).join('')}</div>`;
+  }
+
   function scanLines(text) {
     const lines = text.split('\n').map((l) => l.trim());
     const out = [];
@@ -881,6 +910,8 @@
         }
       }
       if (OPEN_RE.test(t) && CLOSE_RE.test(t)) { out.push({ scene: [t.slice(1, -1)] }); continue; }
+      const pm = t.match(PIC_RE);
+      if (pm) { out.push({ pics: pm[1].split(/[｜|、,，]/).map((x) => x.trim()).filter(Boolean) }); continue; }
       out.push({ t });
     }
     return out;
@@ -892,6 +923,7 @@
     let who = null, prev = null;
     for (const tk of tokens) {
       if (tk.scene) { prev = null; out.push(`<p class="msg-scene">${tk.scene.map(esc).join('<br>')}</p>`); continue; }
+      if (tk.pics) { out.push(picBubble(tk.pics, who === 'Zoi')); continue; }
       const t = tk.t;
       if (HEADING_RE.test(t) || /^\d{1,2}[:：]\d{2}/.test(t) || /^\d{4}[.\-/年]\d{1,2}/.test(t)) { prev = null; out.push(`<p class="msg-time">${esc(t.replace(/^#{1,3}\s/, ''))}</p>`); continue; }
       const sp = speakerOf(t, true);
@@ -909,19 +941,25 @@
 
   // A scene note belongs to whoever it is about: the first person named in it gets the line beside it,
   // so Evan's thoughts after one of Zoi's lines read as his, not hers.
-  function sceneColor(lines) {
+  // With no name in it, 她 is Zoi and 他 is the last man who spoke.
+  function sceneColor(lines, lastMan) {
     const t = lines.join(' ');
     let best = null, at = Infinity;
     for (const c of ORDER) for (const a of [c, ...CHARS[c].alias]) {
       const i = t.toLowerCase().indexOf(a.toLowerCase());
       if (i >= 0 && i < at) { at = i; best = c; }
     }
-    return best ? ` style="--who:${CHARS[best].color}"` : '';
+    if (!best) {
+      const he = t.indexOf('他'), she = t.indexOf('她');
+      if (she >= 0 && (he < 0 || she < he)) best = 'Zoi';
+      else if (he >= 0 && lastMan) best = lastMan;
+    }
+    return best && CHARS[best] ? ` style="--who:${CHARS[best].color}"` : '';
   }
 
   function formatBody(text, opts = {}) {
     const out = [];
-    let block = null, chat = null;
+    let block = null, chat = null, lastMan = null;
     const flush = () => {
       if (block) { out.push(`<div class="turn">${speakerLabel(block.name)}${block.paras.map((p) => `<p>${esc(p)}</p>`).join('')}</div>`); block = null; }
     };
@@ -935,7 +973,11 @@
     for (const tk of scanLines(text)) {
       if (tk.scene) {
         if (chat) { chat.push(tk); continue; }
-        flush(); out.push(`<div class="scene"${sceneColor(tk.scene)}>${tk.scene.map((x) => `<p>${esc(x)}</p>`).join('')}</div>`); continue;
+        flush(); out.push(`<div class="scene"${sceneColor(tk.scene, lastMan)}>${tk.scene.map((x) => `<p>${esc(x)}</p>`).join('')}</div>`); continue;
+      }
+      if (tk.pics) {
+        if (chat) { chat.push(tk); continue; }
+        flush(); out.push(polaroids(tk.pics)); continue;
       }
       const t = tk.t;
       if (HEADING_RE.test(t) || /^【[^】]*】$/.test(t)) {
@@ -946,7 +988,7 @@
       }
       if (chat) { chat.push(tk); continue; }
       const sp = opts.speakers === false ? null : speakerOf(t, opts.generic);
-      if (sp) { flush(); block = { name: sp.name, paras: sp.rest ? [sp.rest] : [] }; continue; }
+      if (sp) { flush(); block = { name: sp.name, paras: sp.rest ? [sp.rest] : [] }; if (CHARS[sp.name] && sp.name !== 'Zoi') lastMan = sp.name; continue; }
       if (block) block.paras.push(t); else out.push(`<p>${esc(t)}</p>`);
     }
     flush(); endChat();
@@ -1196,8 +1238,8 @@
         <div class="rmeta">${dashes(ch.chars, 'dashes sm')}<a href="#/main/${enc(ch.arc)}">${esc(ch.arc)}</a>${ch.key ? '<span class="tag key">重点</span>' : ''}${ch.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}${ch.headLine ? '<button class="linkbtn tag-edit" data-act="edit-tags">Edit tags</button>' : ''}</div>
       </div>
       ${chapterNotes(ch)}
-      <article class="body">${formatBody(ch.text)}</article>
-      ${storyStrip(storyImagesFor(ch.num, ch.part, 'main'))}
+      <article class="body">${(PIC_CTX = { ep: ch.num, used: new Set() }, formatBody(ch.text))}</article>
+      ${storyStrip(storyImagesFor(ch.num, ch.part, 'main').filter((im) => !PIC_CTX.used.has(im.key)))}
       ${relatedFor(ch.num, ch.id)}
       <nav class="pn">
         ${prev ? `<a href="#/ch/${enc(prev.id)}"><small>Previous</small><span>← ${prev.label}</span></a>` : '<span></span>'}
@@ -1226,6 +1268,7 @@
     CURRENT_TEXT = { title: d.title, text: d.text };
     const img = imageByName(d.image);
     let body;
+    PIC_CTX = { ep: d.ep, used: new Set() };
     const sn = ['message', 'dialogue', 'side'].includes(d.type) ? splitNotes(d.text) : { head: [], tail: [], body: d.text };
     if (d.type === 'message') body = `<div class="chat inline" style='${chatBg(threadKeyOf(d))}'>${chatBubbles(scanLines(sn.body), threadKeyOf(d) === 'group')}</div>`;
     else if (d.type === 'diary') body = `<div class="diary">${formatBody(d.text, { speakers: false })}</div>`;
@@ -1242,7 +1285,7 @@
       </div>
       ${img ? `<figure class="doc-img"><img src="${img.url}" alt=""></figure>` : ''}
       <article class="body">${body}</article>
-      ${['dialogue', 'message', 'side'].includes(d.type) ? storyStrip(storyImagesFor(d.ep, d.part, d.type === 'message' ? 'message' : 'dialogue')) : ''}
+      ${['dialogue', 'message', 'side'].includes(d.type) ? storyStrip(storyImagesFor(d.ep, d.part, d.type === 'message' ? 'message' : 'dialogue').filter((im) => !PIC_CTX.used.has(im.key))) : ''}
       ${relatedFor(d.ep, d.id)}
       <nav class="pn">
         ${prev ? `<a href="#/doc/${enc(prev.id)}"><small>Previous</small><span>← ${esc(prev.title)}</span></a>` : '<span></span>'}
@@ -1671,6 +1714,7 @@
     let who = null;
     for (const tk of scanLines(text)) {
       if (tk.scene) { items.push({ kind: 'scene', text: tk.scene.join('\n') }); continue; }
+      if (tk.pics) { items.push({ kind: 'pics', names: tk.pics, who }); continue; }
       const t = tk.t;
       if (/^([一二三四五六七八九十百]+、|#{1,3}\s)/.test(t) || /^\d{1,2}[:：]\d{2}/.test(t) || /^\d{4}[.\-/年]\d{1,2}/.test(t)) { items.push({ kind: 'time', text: t.replace(/^#{1,3}\s/, '') }); continue; }
       const sp = speakerOf(t, true);
@@ -1713,9 +1757,11 @@
       const ch = chapterFor(d);
       let prev = null, n = 0;
       const sn = splitNotes(d.text);
+      PIC_CTX = { ep: d.ep, used: new Set() };
       const items = parseMsgs(sn.body).map((m) => {
         if (m.kind === 'scene') { prev = null; return `<p class="msg-scene">${m.text.split('\n').map(esc).join('<br>')}</p>`; }
         if (m.kind === 'time') { prev = null; return `<p class="msg-time">${esc(m.text)}</p>`; }
+        if (m.kind === 'pics') return picBubble(m.names, m.who === 'Zoi');
         n++;
         const mid = d.path + '#' + n, id = `m${di}-${n}`;
         ids.set(mid, id);
@@ -1729,7 +1775,7 @@
         const pinned = pins.some((p) => p.mid === mid);
         return `${from}<p class="bubble${me ? ' me' : ''}${pinned ? ' pinned' : ''}${/^[（(][\s\S]*[)）]$/.test(m.text) ? ' aside' : ''}" id="${id}" data-act="bubble" data-mid="${esc(mid)}">${esc(m.text)}</p>`;
       }).join('');
-      return `<div class="seg"><span>${[epName(d), d.date, d.title !== stripExt(d.path) ? d.title : ''].filter(Boolean).map(esc).join(' · ')}</span>${ch ? `<a href="#/ch/${enc(ch.id)}">Main line ↗</a>` : ''}</div>${notesFold(sn.head, sn.tail)}${(() => { const pics = storyImagesFor(d.ep, d.part, 'message'); return pics.length ? `<div class="strip chat-pics">${pics.map((im) => thumb(im)).join('')}</div>` : ''; })()}${items}`;
+      return `<div class="seg"><span>${[epName(d), d.date, d.title !== stripExt(d.path) ? d.title : ''].filter(Boolean).map(esc).join(' · ')}</span>${ch ? `<a href="#/ch/${enc(ch.id)}">Main line ↗</a>` : ''}</div>${notesFold(sn.head, sn.tail)}${(() => { const pics = storyImagesFor(d.ep, d.part, 'message').filter((im) => !PIC_CTX.used.has(im.key)); return pics.length ? `<div class="strip chat-pics">${pics.map((im) => thumb(im)).join('')}</div>` : ''; })()}${items}`;
     }).join('');
     const pinHTML = pins.length ? `<div class="pins">${pins.map((p) => {
       const id = ids.get(p.mid);

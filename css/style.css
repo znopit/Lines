@@ -552,3 +552,17 @@ body.locked .totop { display: none; }
   .ccard:hover .ccard-t { color: var(--blue); }
   .ccard.add:hover .ccard-face { border-color: var(--ink); }
 }
+
+/* pictures placed in the text */
+.pols { display: flex; flex-wrap: wrap; justify-content: center; gap: 18px 14px; margin: 26px 0 30px; }
+.pol { flex: 0 1 46%; max-width: 230px; padding: 8px 8px 0; background: #FBFAF6; border: 0; box-shadow: 0 1px 2px rgba(20, 20, 20, 0.12), 0 6px 16px rgba(20, 20, 20, 0.08); transform: rotate(var(--tilt, 0deg)); cursor: zoom-in; display: flex; flex-direction: column; }
+.pol img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; }
+.pol span { font-family: 'Caveat', var(--text); font-size: 18px; line-height: 1.2; color: #3A3A38; padding: 6px 2px 8px; text-align: center; }
+.pol:not(:has(span)) { padding-bottom: 22px; }
+.pic-msg { align-self: flex-start; display: grid; gap: 3px; max-width: 64%; margin: 2px 0; }
+.pic-msg.me { align-self: flex-end; }
+.pic-msg.many { grid-template-columns: 1fr 1fr; max-width: 74%; }
+.pic-msg button { padding: 0; border: 0; background: none; cursor: zoom-in; display: block; }
+.pic-msg img { width: 100%; display: block; border-radius: 16px; aspect-ratio: 3 / 4; object-fit: cover; }
+.pic-msg.many img { border-radius: 10px; aspect-ratio: 1 / 1; }
+.pic-msg:not(.many) img { max-height: 320px; }
