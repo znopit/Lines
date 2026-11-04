@@ -188,7 +188,7 @@ mark { background: #F1D9A8; color: inherit; }
 .body { padding-top: 28px; }
 .body p { margin: 0 0 1.05em; font-size: 17px; line-height: 1.85; }
 .body .scene, .body .scene p { font-size: 15px; color: var(--muted); line-height: 1.75; }
-.body div.scene { margin: 1.6em 0; padding-left: 14px; border-left: 2px solid var(--who, var(--hair)); }
+.body div.scene { margin: 1.6em 0; padding-left: 14px; border-left: 2px solid var(--hair); border-left-color: color-mix(in srgb, var(--who, var(--hair)) 50%, var(--paper)); }
 .body div.scene p { margin: 0 0 0.6em; }
 .body div.scene p:last-child { margin-bottom: 0; }
 .body .sub { margin: 2em 0 1em; padding-bottom: 8px; border-bottom: 1px solid var(--ink); font-size: 16px; font-weight: 500; }
@@ -568,6 +568,9 @@ body.locked .totop { display: none; }
 .pic-msg:not(.many) img { max-height: 320px; }
 
 /* a longer scene or someone's thoughts inside a thread */
-.msg-note { align-self: stretch; margin: 10px 4px; padding: 10px 12px 10px 14px; background: var(--paper); border-left: 2px solid var(--who, var(--hair)); }
+.msg-note { align-self: stretch; margin: 10px 4px; padding: 10px 12px 10px 14px; background: var(--paper); border-left: 2px solid var(--hair); border-left-color: color-mix(in srgb, var(--who, var(--hair)) 50%, var(--paper)); }
 .msg-note p { margin: 0 0 6px !important; font-size: 14px !important; line-height: 1.7 !important; color: var(--muted); }
 .msg-note p:last-child { margin-bottom: 0 !important; }
+
+.lb-quiet { display: flex; gap: 22px; justify-content: center; }
+.lb-quiet .linkbtn { padding: 0; min-height: 40px; color: rgba(238, 235, 227, 0.75); font-size: 14px; letter-spacing: 0.04em; }

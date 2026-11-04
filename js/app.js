@@ -11,7 +11,7 @@
     Evan:   { full: 'Evan J. Mercer',   color: '#5E6B33', object: 'Save files',     objectZh: '存档',     alias: ['evan', '埃文'] },
     Hudson: { full: 'Hudson M. Foster', color: '#7B2236', object: 'Diary',          objectZh: '日记',     alias: ['hudson', '哈德森'] },
   };
-  const APP_VERSION = '2026-11-05 · 26';
+  const APP_VERSION = '2026-11-05 · 27';
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
   const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
   // The two home-page accents: the round dot on Main line and the solid Studies block.
@@ -1177,7 +1177,24 @@
     return shell(pageTitle(conf.title, conf.lede) + filterBar(conf.base, all, f) + rows);
   }
 
+  // Where a reader page was opened from: the back link returns there (Timeline, a character, a thread…).
+  let ORIGIN = null;
+  const SCROLLS = new Map();
+  const isReader = (h) => /^#\/(ch|doc)\//.test(h || '');
+  function originLabel(h) {
+    const [path, q] = h.slice(2).split('?');
+    const p = path.split('/').map(decodeURIComponent);
+    if (p[0] === '' || !p[0]) return 'Home';
+    if (p[0] === 'timeline') { const n = new URLSearchParams(q || '').get('n'); return n ? 'Timeline · ' + n : 'Timeline'; }
+    if (p[0] === 'c') return p[1];
+    if (p[0] === 'messages' && p[1]) { const t = THREADS.find((x) => x.key === p[1]); return t ? threadName(t) : 'Messages'; }
+    if (p[0] === 'main') return 'Main line';
+    const nav = NAV.find((x) => x.key === p[0]);
+    return nav ? nav.name : 'Back';
+  }
+
   function readerActions(back, backLabel) {
+    if (ORIGIN && ORIGIN !== location.hash) { back = ORIGIN; backLabel = originLabel(ORIGIN); }
     return `<div class="rbar"><a href="${back}">← ${esc(backLabel)}</a><span><button class="linkbtn" data-act="copy">Copy</button><button class="linkbtn" data-act="save-txt">Save .txt</button></span></div>`;
   }
 
@@ -1409,20 +1426,25 @@
     return shell(pageTitle('Gallery', 'Portraits, pictures from the story, and art.') + actions + kinds + people + body) + bar;
   }
 
-  function viewTimeline() {
+  function viewTimeline(params) {
     const groups = new Map();
     LIB.chapters.forEach((c) => { if (!groups.has(c.num)) groups.set(c.num, []); groups.get(c.num).push(c); });
     LIB.docs.forEach((d) => { if (d.ep != null) { if (!groups.has(d.ep)) groups.set(d.ep, []); groups.get(d.ep).push(d); } });
     const nums = [...groups.keys()].sort((a, b) => b - a);
     if (!nums.length) return shell(pageTitle('Timeline', 'Everything, by chapter number.') + emptyState('Nothing has a chapter number yet.'));
     const arcOf = (n) => (LIB.arcs.find((a) => a.range && n >= a.range[0] && n <= a.range[1]) || {}).name || '';
-    const body = nums.map((n) => {
-      const items = groups.get(n);
-      return `<section class="tl" id="tl-${n}"><div class="tl-head"><span class="tl-num">${n}</span><span class="tl-arc">${esc(arcOf(n))}</span></div>
-        <div class="rows">${items.map((it) => it.kind === 'chapter' ? rowHTML(it, { noNum: true }) : rowHTML(it, { showType: true, noNum: true })).join('')}</div></section>`;
-    }).join('');
-    return shell(pageTitle('Timeline', 'Everything, by chapter number. The world at each point in the story.') +
-      `<form class="jump" data-act="jump"><label for="jump-n">Go to 第</label><input id="jump-n" type="number" inputmode="numeric" min="1" placeholder="${nums[0]}"><label for="jump-n">篇</label><button class="btn sm" type="submit">Go</button></form>` + body);
+    const section = (n) => `<section class="tl" id="tl-${n}"><div class="tl-head"><span class="tl-num">${n}</span><span class="tl-arc">${esc(arcOf(n))}</span></div>
+        <div class="rows">${groups.get(n).map((it) => it.kind === 'chapter' ? rowHTML(it, { noNum: true }) : rowHTML(it, { showType: true, noNum: true })).join('')}</div></section>`;
+    const form = (v) => `<form class="jump" data-act="jump"><label for="jump-n">Go to 第</label><input id="jump-n" type="text" inputmode="decimal" placeholder="${nums[0]}" value="${v || ''}"><label for="jump-n">篇</label><button class="btn sm" type="submit">Go</button></form>`;
+    // Asked for one 篇: show only that one, with the neighbours either side.
+    const want = parseInt(params.get('n') || '', 10);
+    if (groups.has(want)) {
+      const i = nums.indexOf(want), newer = nums[i - 1], older = nums[i + 1];
+      return shell(pageTitle('Timeline', 'Everything, by chapter number. The world at each point in the story.') + form(want) +
+        `<p class="note-line"><a href="#/timeline">← All chapters</a></p>` + section(want) +
+        `<nav class="pn">${older != null ? `<a href="#/timeline?n=${older}"><small>Earlier</small><span>← ${older}</span></a>` : '<span></span>'}${newer != null ? `<a class="r" href="#/timeline?n=${newer}"><small>Later</small><span>${newer} →</span></a>` : '<span></span>'}</nav>`);
+    }
+    return shell(pageTitle('Timeline', 'Everything, by chapter number. The world at each point in the story.') + form('') + nums.map(section).join(''));
   }
 
   async function viewLibrary() {
@@ -1555,7 +1577,7 @@
 
   let PENDING_IMAGES = [];
   let PENDING = { kind: 'portrait', people: [] };
-  let LB_ORIGINAL = false;
+  let LB_ORIGINAL = false, LB_EDIT = false;
 
   function pickImages(preset) {
     const inp = document.createElement('input');
@@ -1614,11 +1636,12 @@
     const im = LIB.images.find((i) => i.key === key);
     if (!im) return;
     const k = esc(key);
+    const quiet = `<div class="lb-quiet">${im.kind === 'art' || toneMode() === 'off' ? '' : `<button class="linkbtn" data-act="lb-tone" data-key="${k}">${LB_ORIGINAL ? 'Styled' : 'Original'}</button>`}<button class="linkbtn" data-act="lb-edit" data-key="${k}">${LB_EDIT ? 'Done' : 'Edit'}</button></div>`;
     openOverlay(`<button class="lb-close menubtn" data-act="close">CLOSE ×</button>
       <figure class="lb-fig">${toned(im, LB_ORIGINAL)}</figure>
       ${im.caption || im.ep != null ? `<p class="lb-cap">${esc([im.kind === 'story' ? imgEp(im) : '', im.caption].filter(Boolean).join(' · '))}</p>` : ''}
-      <div class="lb-bar">
-        ${im.kind === 'art' || toneMode() === 'off' ? '' : `<button class="chip" data-act="lb-tone" data-key="${k}">${LB_ORIGINAL ? 'Show styled' : 'Show original'}</button>`}
+      ${quiet}
+      ${!LB_EDIT ? '' : `<div class="lb-bar">
         <div class="chips">${KINDS.map(([kk, label]) => `<button class="chip${im.kind === kk ? ' on' : ''}" data-act="lb-set" data-field="kind" data-v="${kk}" data-key="${k}">${label}</button>`).join('')}</div>
         <div class="chips">${ORDER.map((c) => `<button class="chip${im.chars.includes(c) ? ' on' : ''}" data-act="lb-set" data-field="person" data-v="${c}" data-key="${k}">${c}</button>`).join('')}</div>
         <form class="lb-form" data-act="lb-save" data-key="${k}">
@@ -1628,7 +1651,7 @@
           <button class="chip" type="submit">Save</button>
         </form>
         <button class="chip danger" data-act="lb-remove" data-key="${k}">Remove</button>
-      </div>`, 'lightbox');
+      </div>`}`, 'lightbox');
   }
 
   // Edits rename the stored file, so the name in Files says the same thing after Export.
@@ -1941,7 +1964,7 @@
       case 'characters': html = viewCharacters(); break;
       case 'c': html = viewCharacter(parts[1]); break;
       case 'gallery': html = viewGallery(params); break;
-      case 'timeline': html = viewTimeline(); break;
+      case 'timeline': html = viewTimeline(params); break;
       case 'library': html = await viewLibrary(); break;
       default: html = viewMissing();
     }
@@ -1950,8 +1973,11 @@
       const el = document.getElementById('arc-' + enc(parts[1]));
       if (el) { el.scrollIntoView(); return; }
     }
+    // Coming back to a list from a reader: return to where you were in it.
+    if (RESTORE && RESTORE === (location.hash || '#/') && SCROLLS.has(RESTORE)) { window.scrollTo(0, SCROLLS.get(RESTORE)); RESTORE = null; return; }
     window.scrollTo(0, 0);
   }
+  let RESTORE = null;
 
   // ---------- Events ----------
 
@@ -1975,7 +2001,8 @@
         await saveBlob(new Blob([CURRENT_TEXT.title + '\n\n' + CURRENT_TEXT.text], { type: 'text/plain;charset=utf-8' }), name + '.txt');
         break;
       }
-      case 'lightbox': LB_ORIGINAL = false; openLightbox(el.dataset.key); break;
+      case 'lightbox': LB_ORIGINAL = false; LB_EDIT = false; openLightbox(el.dataset.key); break;
+      case 'lb-edit': LB_EDIT = !LB_EDIT; openLightbox(el.dataset.key); break;
       case 'lb-tone': LB_ORIGINAL = !LB_ORIGINAL; openLightbox(el.dataset.key); break;
       case 'lb-set': {
         const { field, v } = el.dataset;
@@ -2180,9 +2207,11 @@
     const form = e.target.closest('[data-act="jump"]');
     if (!form) return;
     e.preventDefault();
-    const n = form.querySelector('input').value;
-    const el = document.getElementById('tl-' + n);
-    if (el) el.scrollIntoView({ behavior: 'smooth' }); else toast('Nothing at 第' + n + '篇.');
+    const inp = form.querySelector('input');
+    const m = (inp.value.trim() || inp.placeholder).match(/\d{1,4}/);
+    if (!m) return;
+    if (document.querySelector('.tl') && !LIB.chapters.some((c) => c.num === +m[0]) && !LIB.docs.some((d) => d.ep === +m[0])) { toast('Nothing at 第' + m[0] + '篇.'); return; }
+    location.hash = '#/timeline?n=' + +m[0];
   });
 
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$overlay.hidden) closeOverlay(); });
@@ -2194,7 +2223,12 @@
     if (files.length) await importFiles(files, replace);
   });
 
-  window.addEventListener('hashchange', () => {
+  window.addEventListener('hashchange', (e) => {
+    const from = '#' + (e.oldURL.split('#')[1] || '/'), to = location.hash || '#/';
+    SCROLLS.set(from, window.scrollY);
+    if (isReader(to) && !isReader(from)) ORIGIN = from;
+    else if (!isReader(to)) ORIGIN = null;
+    RESTORE = isReader(from) && !isReader(to) ? to : null;
     if (!location.hash.startsWith('#/gallery')) { SELECTING = false; SELECTED.clear(); } if (!$overlay.hidden) closeOverlay(); route(); });
 
   // ---------- Start ----------
