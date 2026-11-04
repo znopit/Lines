@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Margins</title>
+<meta name="apple-mobile-web-app-title" content="Margins">
+<meta name="theme-color" content="#EEEBE3">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-512.png">
+<script>
+  // Door page for Margins. It only opens the real library on claude.ai.
+  // Visited plainly, it stays put so it can be added to the Home Screen;
+  // opened from the Home Screen (it then carries ?open), it goes straight through.
+  var MARGINS = 'https://claude.ai/artifact/YVKwJZKLw9r9pMvPxjx9hZ';
+  var fromHome = /[?&]open\b/.test(location.search) || window.navigator.standalone === true;
+  if (fromHome) { location.replace(MARGINS); }
+  else if (history.replaceState) { history.replaceState(null, '', location.pathname + '?open'); }
+</script>
+<style>
+  :root{color-scheme:light}
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#EEEBE3;color:#141414;
+    font-family:"Helvetica Neue",Arial,sans-serif;padding:24px;box-sizing:border-box;text-align:center}
+  main{display:flex;flex-direction:column;align-items:center;gap:18px;max-width:22em}
+  img{width:96px;height:96px;border-radius:22px}
+  h1{margin:0;font-size:40px;letter-spacing:-.05em;font-weight:800}
+  p{margin:0;color:#57534B;line-height:1.5}
+  a{display:inline-flex;align-items:center;min-height:44px;padding:0 22px;background:#141414;color:#EEEBE3;text-decoration:none;
+    text-transform:uppercase;letter-spacing:.04em;font-size:15px}
+</style>
+</head>
+<body>
+<main>
+  <img src="apple-touch-icon.png" alt="">
+  <h1>Margins</h1>
+  <p>To put Margins on your Home Screen, tap Share, then Add to Home Screen.</p>
+  <a href="https://claude.ai/artifact/YVKwJZKLw9r9pMvPxjx9hZ">Open Margins</a>
+</main>
+</body>
+</html>

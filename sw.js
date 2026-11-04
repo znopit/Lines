@@ -36,6 +36,10 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
 
+  // The Margins door page lives in its own folder; leave it to the network so it never
+  // lands in the Lines cache (a navigation there would otherwise be saved as Lines' index.html).
+  if (url.origin === self.location.origin && /\/margins\//.test(url.pathname)) return;
+
   if (url.origin === self.location.origin) {
     // Online: always ask the network first, so changes show up on the next open.
     // Offline or slow: fall back to the saved copy after a few seconds.
