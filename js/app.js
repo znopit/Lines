@@ -11,7 +11,7 @@
     Evan:   { full: 'Evan J. Mercer',   color: '#5E6B33', object: 'Save files',     objectZh: '存档',     alias: ['evan', '埃文'] },
     Hudson: { full: 'Hudson M. Foster', color: '#7B2236', object: 'Diary',          objectZh: '日记',     alias: ['hudson', '哈德森'] },
   };
-  const APP_VERSION = '2026-11-05 · 27';
+  const APP_VERSION = '2026-11-17 · 28';
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
   const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
   // The two home-page accents: the round dot on Main line and the solid Studies block.
@@ -791,17 +791,20 @@
 
   function bagelSVG() {
     // Zoi sits in the hole of the bagel. Leon, Evan and Hudson stand on the ring at equal distances,
-    // each joined to her; Leon's line is the strongest.
+    // each joined to her. A line is as thick as what is filed on it, and opens what runs between the two.
     const seeds = [[-65,110,20],[-40,170,-35],[-15,125,60],[5,180,-10],[55,150,40],[80,105,-25],[100,175,70],[125,130,-50],[175,165,15],[200,110,-40],[225,175,30],[250,135,-15]]
       .map(([a, r, rot]) => [250 + r * Math.cos((a * Math.PI) / 180), 250 + r * Math.sin((a * Math.PI) / 180), rot]);
     const P = { Leon: [250, 50], Evan: [77, 350], Hudson: [423, 350] };
     const grad = (c) => `<linearGradient id="g${c}" gradientUnits="userSpaceOnUse" x1="250" y1="250" x2="${P[c][0]}" y2="${P[c][1]}"><stop offset="0" stop-color="${CHARS.Zoi.color}"/><stop offset="1" stop-color="${CHARS[c].color}"/></linearGradient>`;
-    const spoke = (c, w) => `<line x1="250" y1="250" x2="${P[c][0]}" y2="${P[c][1]}" stroke="url(#g${c})" stroke-width="${w}"/>`;
+    const W = lineWeights();
+    const spoke = (c) => `<a href="#/line/${c.toLowerCase()}" class="spoke" aria-label="The line between Zoi and ${c}">
+        <line x1="250" y1="250" x2="${P[c][0]}" y2="${P[c][1]}" stroke="transparent" stroke-width="40" pointer-events="stroke"/>
+        <line class="spoke-line" x1="250" y1="250" x2="${P[c][0]}" y2="${P[c][1]}" stroke="url(#g${c})" stroke-width="${W[c]}"/></a>`;
     return `<svg class="bagel" viewBox="-50 0 600 500" role="img" aria-label="Zoi at the centre of a ring. Leon, Evan and Hudson stand on the ring, each joined to her by a line.">
       <defs>${grad('Leon')}${grad('Evan')}${grad('Hudson')}</defs>
       <circle cx="250" cy="250" r="200" fill="none" stroke="var(--ink)" stroke-width="1.2"/>
       <g fill="var(--ink)">${seeds.map(([x, y, r]) => `<ellipse cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" rx="4.5" ry="1.8" transform="rotate(${r} ${x.toFixed(1)} ${y.toFixed(1)})"/>`).join('')}</g>
-      ${spoke('Evan', 1.5)}${spoke('Hudson', 1.5)}${spoke('Leon', 3.5)}
+      ${spoke('Evan')}${spoke('Hudson')}${spoke('Leon')}
       <circle cx="250" cy="250" r="62" fill="none" stroke="var(--ink)" stroke-width="1.2"/>
       <a href="#/c/Leon"><circle cx="250" cy="50" r="11" fill="${CHARS.Leon.color}" stroke="var(--paper)" stroke-width="3"/><text x="250" y="26" text-anchor="middle">Leon</text></a>
       <a href="#/c/Evan"><circle cx="77" cy="350" r="9" fill="${CHARS.Evan.color}" stroke="var(--paper)" stroke-width="3"/><text x="60" y="380" text-anchor="end">Evan</text></a>
@@ -1087,7 +1090,7 @@
           <div class="hero-text">
             <p class="intro">A private library for one long story: the main line, the dialogues, the side lines, and the four people they run between.</p>
             ${last ? `<a class="continue" href="${last.kind === 'chapter' ? '#/ch/' : '#/doc/'}${enc(last.id)}">Continue reading · ${esc(last.title)} →</a>` : ''}
-            ${empty ? `<div class="import-cta"><p>The library is empty. Compress your Lines folder in Files, then import the .zip.</p><button class="btn" data-act="import">Import</button></div>` : '<p class="small">Kept offline, on this device.</p>'}
+            ${empty ? `<div class="import-cta"><p>The library is empty. Compress your Lines folder in Files, then import the .zip.</p><button class="btn" data-act="import">Import</button></div>` : '<p class="small">Kept offline, on this device.</p><p class="small">Tap a line to read what runs between two people.</p>'}
           </div>
           ${bagelSVG()}
         </div>
@@ -1116,7 +1119,120 @@
       <span class="crow-badge">${badgeSVG(c)}</span>
       <span class="crow-name">${c}<sup>${pad(i + 1)}</sup></span>
       <span class="crow-full"><span>${CHARS[c].full}</span><span aria-hidden="true">↗</span></span>
+      ${traceHTML(c)}
     </a>`;
+  }
+
+  // The newest thing each person left in the library, read from the imported files only.
+  //   Leon: the last thing he kept.   Zoi: her last drawing.
+  //   Evan: his last text to Zoi.     Hudson: his last diary page.
+  const latestOf = (list) => {
+    const n = list.filter((d) => d.ep != null);
+    if (!n.length) return list[list.length - 1] || null;
+    return n.reduce((m, d) => (d.ep > m.ep || (d.ep === m.ep && (d.part || 0) >= (m.part || 0)) ? d : m));
+  };
+  function traceFor(c) {
+    const name = (d) => d.title || d.caption || 'Untitled';
+    if (c === 'Leon') {
+      const it = latestOf([...docsOf('item').filter((d) => d.chars.includes('Leon')), ...LIB.images.filter((im) => !im.cover && im.kind === 'story' && im.chars.includes('Leon'))]);
+      if (it) return { verb: 'Kept', text: name(it), at: epName(it) };
+    } else if (c === 'Zoi') {
+      const it = latestOf([...LIB.images.filter((im) => im.kind === 'art' && !im.cover), ...docsOf('sketch')]);
+      if (it) return { verb: 'Drew', text: name(it), at: epName(it) };
+    } else if (c === 'Evan') {
+      const segs = threadSegments('evan');
+      for (let i = segs.length - 1; i >= 0; i--) {
+        const mine = parseMsgs(segs[i].text).filter((m) => m.kind === 'msg' && m.who === 'Evan');
+        if (mine.length) return { verb: 'Texted', text: '“' + mine[mine.length - 1].text + '”', at: epName(segs[i].d) };
+      }
+      const sv = latestOf(docsOf('save').filter((d) => d.chars.includes('Evan')));
+      if (sv) return { verb: 'Saved', text: name(sv), at: epName(sv) };
+    } else {
+      const pg = latestOf(docsOf('diary').filter((d) => d.chars.includes('Hudson')));
+      if (pg) return { verb: 'Wrote', text: name(pg), at: pg.date || epName(pg) };
+    }
+    const seen = latestOf(LIB.docs.filter((d) => ['dialogue', 'message', 'side'].includes(d.type) && d.chars.includes(c)));
+    return seen ? { verb: 'Last seen', text: name(seen), at: epName(seen) } : null;
+  }
+  function traceHTML(c) {
+    const t = traceFor(c);
+    return t ? `<span class="crow-trace"><i style="background:${charColor(c)}"></i><b>${t.verb}</b><span>${esc(t.text)}</span>${t.at ? `<em>${esc(t.at)}</em>` : ''}</span>` : '';
+  }
+
+  // ---------- Lines: what runs between Zoi and each of the others ----------
+
+  const LINES = [
+    { key: 'leon', with: 'Leon', pair: ['Leon', 'Zoi'] },
+    { key: 'evan', with: 'Evan', pair: ['Zoi', 'Evan'] },
+    { key: 'hudson', with: 'Hudson', pair: ['Zoi', 'Hudson'] },
+  ];
+  const lineLabel = (L) => L.pair.join(' × ');
+  const thirdParties = (x) => ORDER.filter((c) => c !== 'Zoi' && c !== x);
+  // A file is on a line when it is between these two and nobody else.
+  const onLine = (x) => (d) => d.chars.includes(x) && !thirdParties(x).some((o) => d.chars.includes(o));
+  function lineData(x) {
+    const key = x.toLowerCase();
+    // Chapters follow the Main line filters, so the count here matches the list the link opens.
+    const f = MAIN_FILTERS.find((m) => m.key === (x === 'Leon' ? 'pair' : x));
+    const chapters = LIB.chapters.filter(f.test);
+    const dialogues = docsOf('dialogue').filter(onLine(x));
+    const sides = docsOf('side').filter(onLine(x));
+    const thread = threadSummary(key);
+    const images = LIB.images.filter((im) => !im.cover && im.chars.includes('Zoi') && onLine(x)(im));
+    return { chapters, dialogues, sides, thread, images, filter: f.key, score: chapters.length + dialogues.length + sides.length + threadDocs(key).length };
+  }
+  // The thickest line is the one with the most filed on it; an empty library keeps the drawn default.
+  function lineWeights() {
+    const s = Object.fromEntries(LINES.map((L) => [L.with, lineData(L.with).score]));
+    const max = Math.max(...Object.values(s));
+    if (!max) return { Leon: 3.5, Evan: 1.5, Hudson: 1.5 };
+    return Object.fromEntries(LINES.map((L) => [L.with, +(1.2 + 3.3 * Math.sqrt(s[L.with] / max)).toFixed(2)]));
+  }
+
+  function viewLine(key) {
+    const L = LINES.find((l) => l.key === key);
+    if (!L) return viewMissing();
+    const x = L.with, D = lineData(x), t = THREADS.find((q) => q.key === key);
+    const [a, b] = L.pair;
+    const w = Math.max(2, lineWeights()[x] * 1.6);
+    const art = `<svg class="line-art" viewBox="0 0 600 44" role="img" aria-label="A line from ${a} to ${b}">
+      <defs><linearGradient id="lg-${key}" gradientUnits="userSpaceOnUse" x1="22" y1="22" x2="578" y2="22"><stop offset="0" stop-color="${CHARS[a].color}"/><stop offset="1" stop-color="${CHARS[b].color}"/></linearGradient></defs>
+      <line x1="22" y1="22" x2="578" y2="22" stroke="url(#lg-${key})" stroke-width="${w}"/>
+      <a href="#/c/${a}" aria-label="${a}"><circle cx="22" cy="22" r="22" fill="transparent"/><circle cx="22" cy="22" r="12" fill="${CHARS[a].color}" stroke="var(--paper)" stroke-width="3"/></a>
+      <a href="#/c/${b}" aria-label="${b}"><circle cx="578" cy="22" r="22" fill="transparent"/><circle cx="578" cy="22" r="12" fill="${CHARS[b].color}" stroke="var(--paper)" stroke-width="3"/></a>
+    </svg>`;
+    const facts = [
+      D.chapters.length ? 'Since 第' + D.chapters[0].num + '篇' : '',
+      D.chapters.length ? D.chapters.length + ' chapter' + (D.chapters.length === 1 ? '' : 's') : '',
+      D.dialogues.length ? D.dialogues.length + ' dialogue' + (D.dialogues.length === 1 ? '' : 's') : '',
+      D.thread.count ? D.thread.count + ' message' + (D.thread.count === 1 ? '' : 's') : '',
+    ].filter(Boolean).join(' · ');
+    const first = D.chapters[0], latest = D.chapters[D.chapters.length - 1];
+    const ends = first ? (first === latest ? [first] : [first, latest]) : [];
+    const last = D.thread.last;
+    const blocks = [
+      ends.length ? `<section class="block">${sectionHead('MAIN LINE', D.chapters.length)}
+        <p class="note-line">${ends.length > 1 ? 'Where it starts, and where it is now.' : 'Where it starts.'} <a href="#/main?f=${D.filter}">All ${D.chapters.length} →</a></p>
+        <div class="rows">${ends.map((c) => rowHTML(c)).join('')}</div></section>` : '',
+      D.dialogues.length ? `<section class="block">${sectionHead('DIALOGUES', D.dialogues.length)}<div class="rows">${D.dialogues.map((d) => rowHTML(d)).join('')}</div></section>` : '',
+      D.thread.count ? `<section class="block">${sectionHead('MESSAGES', D.thread.count)}<div class="threads flat">
+        <a class="trow" href="#/messages/${key}"><span class="trow-av">${threadAvatar(t)}</span>
+          <span class="trow-main"><span class="trow-name">${esc(threadName(t))}</span><span class="trow-last">${last ? esc((last.who === 'Zoi' ? 'You: ' : '') + last.text) : ''}</span></span>
+          <span class="trow-meta">${D.thread.latest ? esc(epName(D.thread.latest)) : ''}</span></a></div></section>` : '',
+      D.sides.length ? `<section class="block">${sectionHead('SIDE LINES', D.sides.length)}<div class="rows">${D.sides.map((d) => rowHTML(d)).join('')}</div></section>` : '',
+      D.images.length ? `<section class="block">${sectionHead('TOGETHER', D.images.length)}<div class="strip">${D.images.slice(0, 16).map((im) => thumb(im)).join('')}</div></section>` : '',
+    ].join('');
+    return `${topbar()}<main class="wrap page">
+      <div class="rbar"><a href="#/">← Home</a></div>
+      <div class="lhero">
+        <p class="lkick">A line</p>
+        <h1 class="lname"><a href="#/c/${a}">${a}</a> <span class="x">×</span> <a href="#/c/${b}">${b}</a></h1>
+        ${art}
+        ${facts ? `<p class="lede">${esc(facts)}</p>` : ''}
+      </div>
+      ${blocks || '<p class="note-line">Nothing is filed on this line yet. A 1v1 or 短信 file with 人物：' + esc(lineLabel(L)) + ' will show here.</p>'}
+      <nav class="pn">${LINES.filter((o) => o !== L).map((o) => `<a href="#/line/${o.key}"><small>Line</small><span>${dashes(o.pair, 'dashes sm')}${lineLabel(o)}</span></a>`).join('')}</nav>
+    </main>${footer()}`;
   }
 
   const MAIN_FILTERS = [
@@ -1187,6 +1303,7 @@
     if (p[0] === '' || !p[0]) return 'Home';
     if (p[0] === 'timeline') { const n = new URLSearchParams(q || '').get('n'); return n ? 'Timeline · ' + n : 'Timeline'; }
     if (p[0] === 'c') return p[1];
+    if (p[0] === 'line') { const L = LINES.find((l) => l.key === p[1]); return L ? lineLabel(L) : 'Home'; }
     if (p[0] === 'messages' && p[1]) { const t = THREADS.find((x) => x.key === p[1]); return t ? threadName(t) : 'Messages'; }
     if (p[0] === 'main') return 'Main line';
     const nav = NAV.find((x) => x.key === p[0]);
@@ -1328,7 +1445,7 @@
   }
 
   // Each person's own things, in one shared grid of same-size cards; only the cards differ.
-  //   Leon: objects with a museum label.  Zoi: drawings in a paper mount.
+  //   Leon: objects with a tied evidence tag.  Zoi: pages of a spiral sketchbook.
   //   Evan: save slots.                   Hudson: pages of a ruled notebook.
   const ccard = (inner, label, attrs, cls = '') => `<${attrs.href ? 'a' : 'button'} class="ccard ${cls}" ${attrs.href ? `href="${attrs.href}"` : `type="button" data-act="${attrs.act}"${attrs.key ? ` data-key="${esc(attrs.key)}"` : ''}${attrs.c ? ` data-c="${attrs.c}"` : ''}`}>
       <span class="ccard-face">${inner}</span>${label ? `<span class="ccard-label">${label}</span>` : ''}</${attrs.href ? 'a' : 'button'}>`;
@@ -1340,10 +1457,12 @@
     if (c === 'Leon') {
       const items = docsOf('item').filter((d) => d.chars.includes('Leon'));
       const pics = LIB.images.filter((im) => im.kind === 'story' && im.chars.includes('Leon') && !items.some((d) => imageByName(d.image) === im));
-      pics.forEach((im) => cards.push(ccard(`<img src="${im.url}" alt="" loading="lazy">`, clabel(imgEp(im), im.caption || 'Untitled'), { act: 'lightbox', key: im.key }, 'leon')));
+      let no = 0;
+      const tag = (ep, t) => clabel(['Item ' + pad(++no), ep].filter(Boolean).join(' · '), t);
+      pics.forEach((im) => cards.push(ccard(`<img src="${im.url}" alt="" loading="lazy">`, tag(imgEp(im), im.caption || 'Untitled'), { act: 'lightbox', key: im.key }, 'leon')));
       items.forEach((d) => {
         const img = imageByName(d.image);
-        cards.push(ccard(img ? `<img src="${img.url}" alt="" loading="lazy">` : ringSVG(40, 'currentColor', 5), clabel(epName(d), d.title), { href: '#/doc/' + enc(d.id) }, 'leon'));
+        cards.push(ccard(img ? `<img src="${img.url}" alt="" loading="lazy">` : `<span class="ev-text">${esc(excerpt(d.text, 44))}</span>`, tag(epName(d), d.title), { href: '#/doc/' + enc(d.id) }, img ? 'leon' : 'leon nopic'));
       });
       head = sectionHead('PERSONAL ITEMS', items.length + pics.length);
       note = 'The things he kept.';
@@ -1351,7 +1470,7 @@
     } else if (c === 'Zoi') {
       const imgs = LIB.images.filter((i) => i.kind === 'art' && !i.cover);
       const docs = docsOf('sketch');
-      imgs.forEach((im) => cards.push(ccard(`<img src="${im.url}" alt="" loading="lazy">`, im.caption ? clabel('', im.caption) : '', { act: 'lightbox', key: im.key }, 'zoi')));
+      imgs.forEach((im) => cards.push(ccard(`<img src="${im.url}" alt="" loading="lazy">`, im.caption ? clabel('', im.caption) : '', { act: 'lightbox', key: im.key }, 'zoi pic')));
       docs.forEach((d) => cards.push(ccard(`<span class="sk-text">${esc(excerpt(d.text, 60))}</span>`, clabel(epName(d), d.title), { href: '#/doc/' + enc(d.id) }, 'zoi')));
       head = sectionHead('SKETCHBOOK', imgs.length + docs.length);
       note = 'Her drawings.';
@@ -1396,6 +1515,7 @@
         <span class="cbadge">${badgeSVG(c)}</span>
         <h1 class="cname">${c}<sup>${pad(ORDER.indexOf(c) + 1)}</sup></h1>
         <p class="lede">${info.full}</p>
+        <p class="clines">${LINES.filter((L) => c === 'Zoi' || L.with === c).map((L) => `<a href="#/line/${L.key}">${dashes(L.pair, 'dashes sm')}${lineLabel(L)} →</a>`).join('')}</p>
         ${cover ? `<figure class="ccover"><img src="${cover.url}" alt=""></figure>` : ''}
       </div>
       ${photoStrip(c)}
@@ -1963,6 +2083,7 @@
       case 'studies': html = viewList('study', params); break;
       case 'characters': html = viewCharacters(); break;
       case 'c': html = viewCharacter(parts[1]); break;
+      case 'line': html = viewLine(parts[1]); break;
       case 'gallery': html = viewGallery(params); break;
       case 'timeline': html = viewTimeline(params); break;
       case 'library': html = await viewLibrary(); break;
