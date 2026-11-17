@@ -11,7 +11,7 @@
     Evan:   { full: 'Evan J. Mercer',   color: '#5E6B33', object: 'Save files',     objectZh: '存档',     alias: ['evan', '埃文'] },
     Hudson: { full: 'Hudson M. Foster', color: '#7B2236', object: 'Diary',          objectZh: '日记',     alias: ['hudson', '哈德森'] },
   };
-  const APP_VERSION = '2026-11-17 · 29';
+  const APP_VERSION = '2026-11-17 · 30';
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
   const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
   // The two home-page accents: the round dot on Main line and the solid Studies block.
@@ -748,7 +748,7 @@
         <rect x="146" y="176" width="96" height="124" style="fill:${PAPER2};stroke:${INK}" stroke-width="1.6"/>
         <circle cx="194" cy="224" r="15" style="fill:${GOLD}"/>
         <path d="M198.5 209.5 Q201 219 208 222 M198.5 209.5 Q194 223 179.5 220.5" fill="none" style="stroke:${INK}" stroke-width="1.6" stroke-linecap="round"/>
-        <path d="M164 300 C 164 266, 176 250, 194 250 S 224 266, 224 300" fill="none" style="stroke:${INK}" stroke-width="1.6"/>
+        <path d="M164 300 C 164 263, 176 247, 194 247 S 224 263, 224 300" fill="none" style="stroke:${INK}" stroke-width="1.6"/>
         <path d="M28 300 H252" fill="none" style="stroke:${INK}" stroke-width="1.6"/></g>
       </svg>`,
     // A reading instrument on the blue block. The four points sit where they sit on the app icon:
