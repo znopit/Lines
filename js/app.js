@@ -11,7 +11,7 @@
     Evan:   { full: 'Evan J. Mercer',   color: '#5E6B33', object: 'Save files',     objectZh: '存档',     alias: ['evan', '埃文'] },
     Hudson: { full: 'Hudson M. Foster', color: '#7B2236', object: 'Diary',          objectZh: '日记',     alias: ['hudson', '哈德森'] },
   };
-  const APP_VERSION = '2026-11-17 · 28';
+  const APP_VERSION = '2026-11-17 · 29';
   const ORDER = ['Leon', 'Zoi', 'Evan', 'Hudson'];
   const DEFAULT_COLORS = Object.fromEntries(ORDER.map((c) => [c, CHARS[c].color]));
   // The two home-page accents: the round dot on Main line and the solid Studies block.
@@ -1132,13 +1132,14 @@
     return n.reduce((m, d) => (d.ep > m.ep || (d.ep === m.ep && (d.part || 0) >= (m.part || 0)) ? d : m));
   };
   function traceFor(c) {
-    const name = (d) => d.title || d.caption || 'Untitled';
+    const name = (d) => d.title || d.caption || '';
+    const pic = (it) => (it.url ? it.url : (imageByName(it.image) || {}).url) || '';
     if (c === 'Leon') {
       const it = latestOf([...docsOf('item').filter((d) => d.chars.includes('Leon')), ...LIB.images.filter((im) => !im.cover && im.kind === 'story' && im.chars.includes('Leon'))]);
-      if (it) return { verb: 'Kept', text: name(it), at: epName(it) };
+      if (it) return { verb: 'Kept', text: name(it), img: pic(it), at: it.url ? imgEp(it) : epName(it) };
     } else if (c === 'Zoi') {
       const it = latestOf([...LIB.images.filter((im) => im.kind === 'art' && !im.cover), ...docsOf('sketch')]);
-      if (it) return { verb: 'Drew', text: name(it), at: epName(it) };
+      if (it) return { verb: 'Drew', text: name(it), img: pic(it), at: it.url ? imgEp(it) : epName(it) };
     } else if (c === 'Evan') {
       const segs = threadSegments('evan');
       for (let i = segs.length - 1; i >= 0; i--) {
@@ -1156,7 +1157,7 @@
   }
   function traceHTML(c) {
     const t = traceFor(c);
-    return t ? `<span class="crow-trace"><i style="background:${charColor(c)}"></i><b>${t.verb}</b><span>${esc(t.text)}</span>${t.at ? `<em>${esc(t.at)}</em>` : ''}</span>` : '';
+    return t ? `<span class="crow-trace"><i style="background:${charColor(c)}"></i><b>${t.verb}</b>${t.img ? `<img src="${t.img}" alt="">` : ''}${t.text ? `<span>${esc(t.text)}</span>` : ''}${t.at ? `<em>${esc(t.at)}</em>` : ''}</span>` : '';
   }
 
   // ---------- Lines: what runs between Zoi and each of the others ----------
@@ -1459,7 +1460,7 @@
       const pics = LIB.images.filter((im) => im.kind === 'story' && im.chars.includes('Leon') && !items.some((d) => imageByName(d.image) === im));
       let no = 0;
       const tag = (ep, t) => clabel(['Item ' + pad(++no), ep].filter(Boolean).join(' · '), t);
-      pics.forEach((im) => cards.push(ccard(`<img src="${im.url}" alt="" loading="lazy">`, tag(imgEp(im), im.caption || 'Untitled'), { act: 'lightbox', key: im.key }, 'leon')));
+      pics.forEach((im) => cards.push(ccard(`<img src="${im.url}" alt="" loading="lazy">`, im.caption ? tag(imgEp(im), im.caption) : tag(imgEp(im), '') + '<span class="ccard-t muted">Add a title</span>', { act: im.caption ? 'lightbox' : 'lb-name', key: im.key }, 'leon')));
       items.forEach((d) => {
         const img = imageByName(d.image);
         cards.push(ccard(img ? `<img src="${img.url}" alt="" loading="lazy">` : `<span class="ev-text">${esc(excerpt(d.text, 44))}</span>`, tag(epName(d), d.title), { href: '#/doc/' + enc(d.id) }, img ? 'leon' : 'leon nopic'));
@@ -1470,7 +1471,7 @@
     } else if (c === 'Zoi') {
       const imgs = LIB.images.filter((i) => i.kind === 'art' && !i.cover);
       const docs = docsOf('sketch');
-      imgs.forEach((im) => cards.push(ccard(`<img src="${im.url}" alt="" loading="lazy">`, im.caption ? clabel('', im.caption) : '', { act: 'lightbox', key: im.key }, 'zoi pic')));
+      imgs.forEach((im) => cards.push(ccard(`<img src="${im.url}" alt="" loading="lazy">`, im.caption ? clabel('', im.caption) : '<span class="ccard-t muted">Add a title</span>', { act: im.caption ? 'lightbox' : 'lb-name', key: im.key }, 'zoi pic')));
       docs.forEach((d) => cards.push(ccard(`<span class="sk-text">${esc(excerpt(d.text, 60))}</span>`, clabel(epName(d), d.title), { href: '#/doc/' + enc(d.id) }, 'zoi')));
       head = sectionHead('SKETCHBOOK', imgs.length + docs.length);
       note = 'Her drawings.';
@@ -1760,6 +1761,7 @@
     openOverlay(`<button class="lb-close menubtn" data-act="close">CLOSE ×</button>
       <figure class="lb-fig">${toned(im, LB_ORIGINAL)}</figure>
       ${im.caption || im.ep != null ? `<p class="lb-cap">${esc([im.kind === 'story' ? imgEp(im) : '', im.caption].filter(Boolean).join(' · '))}</p>` : ''}
+      ${!im.caption && !LB_EDIT ? `<button class="chip lb-name" data-act="lb-name" data-key="${k}">Add a title</button>` : ''}
       ${quiet}
       ${!LB_EDIT ? '' : `<div class="lb-bar">
         <div class="chips">${KINDS.map(([kk, label]) => `<button class="chip${im.kind === kk ? ' on' : ''}" data-act="lb-set" data-field="kind" data-v="${kk}" data-key="${k}">${label}</button>`).join('')}</div>
@@ -2124,6 +2126,12 @@
       }
       case 'lightbox': LB_ORIGINAL = false; LB_EDIT = false; openLightbox(el.dataset.key); break;
       case 'lb-edit': LB_EDIT = !LB_EDIT; openLightbox(el.dataset.key); break;
+      case 'lb-name': {
+        LB_ORIGINAL = false; LB_EDIT = true; openLightbox(el.dataset.key);
+        const cap = $overlay.querySelector('[name="caption"]');
+        if (cap) { cap.scrollIntoView({ block: 'center' }); cap.focus(); }
+        break;
+      }
       case 'lb-tone': LB_ORIGINAL = !LB_ORIGINAL; openLightbox(el.dataset.key); break;
       case 'lb-set': {
         const { field, v } = el.dataset;
